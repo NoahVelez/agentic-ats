@@ -1,0 +1,169 @@
+job_id: jd_analytics_mgr
+title: Analytics Manager
+field: analytics
+text: |
+  # Analytics Manager
+
+  **Team:** Business Analytics · **Location:** Hybrid (Chicago, IL) · **Reports to:** Director of Data
+
+  ## About the role
+  We are looking for an Analytics Manager to lead a team of analysts who support product, marketing,
+  and finance. You will own our reporting layer, run our experimentation program, and turn data into
+  decisions that executives act on.
+
+  ## What you'll do
+  - Lead, hire, and develop a team of 4-6 analysts; run 1:1s, set goals, and own performance reviews.
+  - Write and review complex SQL against our relational databases and cloud data warehouse.
+  - Build and maintain dashboards in Tableau or Power BI that leaders use every week.
+  - Design A/B tests, size samples, and report results with statistical significance.
+  - Communicate insights to stakeholders and deliver executive presentations on business performance.
+  - Partner with data engineering on data models in Snowflake, BigQuery, or Redshift.
+
+  ## Must have
+  - 3+ years of people management experience with direct reports.
+  - Advanced SQL skills.
+  - Experience building dashboards and data visualization in Tableau or Power BI.
+  - Hands-on experience with A/B testing and experimentation, including hypothesis testing.
+  - Strong stakeholder communication, including executive presentations and data storytelling.
+
+  ## Nice to have
+  - Python (pandas, Jupyter) or R programming for analysis.
+  - Experience with a cloud data warehouse such as Snowflake, BigQuery, or Redshift.
+
+  *Synthetic job description for a class project. Not a real job posting.*
+
+requirements:
+  - id: R1
+    text: People management experience
+    kind: must
+    weight: 3
+    jd_phrasings:
+      - "Managed a team of 6 data analysts, owning hiring, onboarding, and performance reviews"
+      - "Provided people management for 8 direct reports across the analytics and data engineering functions"
+      - "Served as team lead for 4 analysts, setting quarterly goals and running career development plans"
+      - "Owned team leadership for a 10-person insights group, including hiring and promotions"
+    paraphrases:
+      - "Led a 5-person analytics group, ran weekly 1:1s and quarterly reviews"
+      - "Hired, coached, and promoted three junior analysts into senior roles over two years"
+      - "Ran the hiring loop and career ladder for a squad of seven insight specialists"
+      - "Wrote annual evaluations and growth plans for the four analysts in my group"
+    transferable:
+      - "Supervised 12 nurses across rotating shifts as charge nurse"
+      - "Commanded a platoon of 30 soldiers and wrote their quarterly performance evaluations"
+      - "Coordinated a 9-person grade-level teaching group and mentored two first-year teachers"
+      - "Supervised 15 warehouse associates across two shifts and ran their weekly check-ins"
+    keywords: [people management, direct reports, managed a team, team lead, team leadership]
+
+  - id: R2
+    text: Advanced SQL skills
+    kind: must
+    weight: 3
+    jd_phrasings:
+      - "Wrote complex SQL queries with window functions and CTEs to build the weekly revenue model"
+      - "Optimized SQL against relational databases with 2B+ rows, cutting report runtime from 40 to 4 minutes"
+      - "Built SQL data models that standardized metric definitions across finance and marketing"
+    paraphrases:
+      - "Wrote PostgreSQL window-function joins across order, refund, and inventory tables"
+      - "Tuned slow MySQL lookups with indexes and rewritten joins, halving page-load times for internal tools"
+      - "Hand-built a churn table from raw event logs using CTE pipelines in Postgres"
+    transferable:
+      - "Reconciled 5,000 warehouse SKUs weekly by writing Microsoft Access lookups against the inventory system"
+      - "Pulled patient census extracts from the hospital EHR reporting module to plan unit staffing"
+      - "Built a grade-tracking database in Microsoft Access and wrote lookups to flag at-risk students"
+      - "Kept the battalion's equipment database current and wrote Access lookups for readiness reports"
+    keywords: [SQL, SQL queries, relational database, relational databases]
+
+  - id: R3
+    text: Experience building dashboards in Tableau or Power BI
+    kind: must
+    weight: 2
+    jd_phrasings:
+      - "Built Tableau dashboards tracking funnel conversion that 200+ sales reps used daily"
+      - "Designed Power BI dashboards for the executive team covering revenue, churn, and pipeline"
+      - "Set data visualization standards and rebuilt 15 legacy reports as a single Tableau workbook"
+    paraphrases:
+      - "Created self-serve Looker views of funnel conversion that 300 account reps opened every week"
+      - "Replaced a 40-tab spreadsheet with interactive Qlik screens showing pipeline health by region"
+      - "Designed chart-driven KPI pages in Metabase so regional leaders could drill into weekly sales"
+    transferable:
+      - "Built Excel charts of student reading levels that the principal used at parent nights"
+      - "Maintained a shift-wide visual board of fill rates and late shipments for the warehouse floor"
+      - "Maintained the unit whiteboard of bed availability and discharge times for the nursing staff"
+      - "Tracked equipment readiness in a unit spreadsheet and built charts for weekly command reviews"
+    keywords: [Tableau, Power BI, dashboard, dashboards, data visualization]
+
+  - id: R4
+    text: Experience designing and analyzing A/B tests
+    kind: must
+    weight: 2
+    jd_phrasings:
+      - "Ran A/B testing for pricing and onboarding flows, reporting lift with statistical significance"
+      - "Built the experimentation framework used for 60+ A/B tests per quarter"
+      - "Applied hypothesis testing and power analysis to size A/B tests for the growth team"
+    paraphrases:
+      - "Set up randomized split trials of checkout changes, sizing samples so a 2% lift could be detected"
+      - "Set up holdout groups for email campaigns and measured incremental revenue against controls"
+      - "Read out treatment-versus-control trials with bootstrapped confidence intervals before every launch"
+    transferable:
+      - "Ran a semester-long trial comparing two reading interventions across matched classrooms"
+      - "Piloted a new triage checklist on one unit and compared fall rates against a control unit for 3 months"
+      - "Trialed two pick-path layouts on alternating weeks at the warehouse and compared picks per hour"
+      - "Tested two convoy loading plans for the battalion on alternating exercises and compared departure times"
+    keywords: [A/B testing, A/B test, A/B tests, experimentation, statistical significance, hypothesis testing]
+
+  - id: R5
+    text: Strong stakeholder communication with executives
+    kind: must
+    weight: 2
+    jd_phrasings:
+      - "Delivered executive presentations on quarterly performance to the CEO and board"
+      - "Partnered with stakeholders in product, finance, and marketing to communicate insights from analysis"
+      - "Used data storytelling to align cross-functional stakeholders on a $3M budget shift"
+    paraphrases:
+      - "Briefed the CFO and VP of Sales monthly on what the numbers meant for hiring plans"
+      - "Turned quarterly churn findings into a two-page memo that the leadership group used to reset targets"
+      - "Walked regional directors through forecast changes in plain language before each planning cycle"
+    transferable:
+      - "Presented monthly readiness briefings to the battalion commander and senior staff"
+      - "Explained care plans to patients' families and briefed attending physicians at shift handoff"
+      - "Briefed the regional operations director weekly on carrier delays and their cost impact"
+      - "Presented student progress data to the principal and school board each semester"
+    keywords: [stakeholder, stakeholders, executive presentations, communicate insights, storytelling, cross-functional]
+
+  - id: R6
+    text: Python or R for analysis
+    kind: nice
+    weight: 1
+    jd_phrasings:
+      - "Automated weekly KPI refreshes with Python and pandas, saving 10 analyst hours per week"
+      - "Built churn propensity models in Python using scikit-learn and Jupyter notebooks"
+      - "Used R programming for survival analysis of subscription retention"
+    paraphrases:
+      - "Scripted the monthly forecast refresh with numpy and scikit-learn, removing a full day of manual work"
+      - "Built a gradient-boosted churn model in a notebook workflow and shipped it as a nightly job"
+      - "Wrote tidyverse scripts to clean survey exports and fit retention curves"
+    transferable:
+      - "Wrote VBA macros that automated the weekly shipment report for three distribution centers"
+      - "Taught myself numpy to automate grade calculations for 150 students"
+      - "Wrote Excel macros that automated the weekly staffing schedule for 40 nurses"
+      - "Wrote Excel macros that automated the battalion's weekly readiness roll-up"
+    keywords: [Python, pandas, R programming, Jupyter]
+
+  - id: R7
+    text: Experience with a cloud data warehouse (Snowflake, BigQuery, or Redshift)
+    kind: nice
+    weight: 1
+    jd_phrasings:
+      - "Migrated reporting tables to a Snowflake cloud data warehouse, cutting compute costs by 30%"
+      - "Modeled marketing attribution tables in BigQuery, refreshed daily for the growth team"
+      - "Maintained the Redshift data warehouse schemas used by 40 analysts"
+    paraphrases:
+      - "Moved 4 TB of order history from on-prem servers to a columnar store on Google Cloud, cutting lookup times by 70%"
+      - "Designed star-schema fact and dimension tables in a managed columnar store for finance reporting"
+      - "Set up nightly ELT loads from Salesforce and Stripe into a hosted analytical store"
+    transferable:
+      - "Moved the clinic's paper scheduling records into a cloud-hosted records system"
+      - "Consolidated five regional shipment spreadsheets into one shared online database"
+      - "Moved the battalion's training records into a shared cloud-based tracking system"
+      - "Moved the school's attendance records for 900 students into a cloud-hosted student system"
+    keywords: [Snowflake, BigQuery, Redshift, data warehouse, cloud data warehouse]

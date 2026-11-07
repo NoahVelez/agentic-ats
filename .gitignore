@@ -1,0 +1,22 @@
+# Secrets
+.env
+
+# Runtime state
+runs/
+chroma/
+.cache/
+
+# Generated data: rebuild with scripts/generate_data.py
+data/generated/
+
+# JD seeds: only the template is committed; other seeds stay local
+data/jd_seeds/*
+!data/jd_seeds/analytics_manager.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/

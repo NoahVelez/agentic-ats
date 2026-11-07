@@ -46,7 +46,7 @@ keyword-stuffer rejection. If we don't beat them, we report that.
 | Agent ↔ tools | `fastmcp.Client` | Agents get data **only** through MCP tools |
 | LLM | Provider SDK behind `llm.py` wrapper; model set by `LLM_MODEL` env | Structured output parsed into Pydantic models; cheapest model that passes our evals |
 | Embeddings | `EMBEDDING_MODEL` env (default: hosted small embedding model) | No local torch, so hosting stays light |
-| Vector store | ChromaDB (persistent, on-disk) | Rebuilt from `data/` by an ingest script |
+| Vector store | ChromaDB (persistent, on-disk) | Rebuilt from `data/generated/` by an ingest script |
 | Keyword baseline | `rank_bm25` | |
 | Schemas | Pydantic v2 | Shared by API, MCP tools, and agents |
 | UI | Streamlit | Calls FastAPI over HTTP |
@@ -89,10 +89,10 @@ Rules:
 ```python
 # src/ats/main.py
 from fastapi import FastAPI
-from ats.mcp_server import mcp            # FastMCP("agentic-ats")
+from ats.mcp_server import mcp  # FastMCP("agentic-ats")
 from ats.api import router
 
-mcp_app = mcp.http_app(path="/")          # Streamable HTTP
+mcp_app = mcp.http_app(path="/")  # Streamable HTTP
 app = FastAPI(title="Agentic ATS", lifespan=mcp_app.lifespan)
 app.include_router(router, prefix="/api")
 app.mount("/mcp", mcp_app)
@@ -232,8 +232,11 @@ or a small ASGI middleware. The public deployment always sets this key.
 
 ### 6.1 Synthetic data generator (`scripts/generate_data.py`)
 
-- Produces `data/jobs/*.json`, `data/resumes/*.json`, and `data/answer_key.json`. The generator is
-  seeded, so runs are reproducible.
+- Reads hand-written JD seeds from `data/jd_seeds/*.yaml` and produces `data/generated/jobs/*.json`,
+  `data/generated/resumes/*.json`, and `data/generated/answer_key.json`. The generator is seeded, so
+  runs are reproducible. Generated files are **not committed**: each environment (including the
+  Docker build) regenerates them. Only the template seed `data/jd_seeds/analytics_manager.yaml` is
+  committed. Usage: [data-generator.md](./data-generator.md).
 - For each JD, it plants these archetypes:
 
 | Archetype | Description | Correct verdict |
@@ -339,46 +342,91 @@ A banner on every page says: *"Synthetic data. Class project. Not for real hirin
 Section = Literal["summary", "experience", "education", "skills", "projects"]
 Verdict = Literal["met", "partial", "missing", "unverified"]
 
+
 class Requirement(BaseModel):
-    id: str; text: str; kind: Literal["must", "nice"]; weight: float
-    equivalents: list[str]; assumption: str | None = None
+    id: str
+    text: str
+    kind: Literal["must", "nice"]
+    weight: float
+    equivalents: list[str]
+    assumption: str | None = None
+
 
 class RequirementSet(BaseModel):
-    job_id: str; requirements: list[Requirement]
+    job_id: str
+    requirements: list[Requirement]
+
 
 class ClarificationRequest(BaseModel):
-    questions: list[Question]            # Question{id, text, about_requirement}
+    questions: list[Question]  # Question{id, text, about_requirement}
+
 
 class SearchHit(BaseModel):
-    candidate_id: str; chunk_id: str; score: float; snippet: str
+    candidate_id: str
+    chunk_id: str
+    score: float
+    snippet: str
+
 
 class CandidatePool(BaseModel):
-    candidate_ids: list[str]; queries: list[QueryRound]
+    candidate_ids: list[str]
+    queries: list[QueryRound]
+
 
 class Chunk(BaseModel):
-    chunk_id: str; candidate_id: str; section: Section; text: str
+    chunk_id: str
+    candidate_id: str
+    section: Section
+    text: str
+
 
 class Claim(BaseModel):
-    requirement_id: str; verdict: Verdict
-    quote: str | None; chunk_id: str | None; reasoning: str
+    requirement_id: str
+    verdict: Verdict
+    quote: str | None
+    chunk_id: str | None
+    reasoning: str
+
 
 class CandidateEvaluation(BaseModel):
-    candidate_id: str; claims: list[Claim]
+    candidate_id: str
+    claims: list[Claim]
+
 
 class QuoteCheck(BaseModel):
-    ok: bool; reason: Literal["ok", "wrong_candidate", "not_verbatim", "chunk_not_found", "missing_quote"]
+    ok: bool
+    reason: Literal["ok", "wrong_candidate", "not_verbatim", "chunk_not_found", "missing_quote"]
+
 
 class VerificationResult(BaseModel):
-    candidate_id: str; passed: bool; rejected: list[RejectedClaim]
+    candidate_id: str
+    passed: bool
+    rejected: list[RejectedClaim]
+
 
 class ShortlistEntry(BaseModel):
-    rank: int; candidate_id: str; score: float; flags: list[str]
-    evaluation: CandidateEvaluation; decision: Decision | None = None
+    rank: int
+    candidate_id: str
+    score: float
+    flags: list[str]
+    evaluation: CandidateEvaluation
+    decision: Decision | None = None
+
 
 class TraceEvent(BaseModel):
-    ts: datetime; run_id: str; stage: str; agent: str | None; event: str
-    round: int | None; tool: str | None; input: dict; output: dict
-    tokens_in: int = 0; tokens_out: int = 0; cost_usd: float = 0; latency_ms: int
+    ts: datetime
+    run_id: str
+    stage: str
+    agent: str | None
+    event: str
+    round: int | None
+    tool: str | None
+    input: dict
+    output: dict
+    tokens_in: int = 0
+    tokens_out: int = 0
+    cost_usd: float = 0
+    latency_ms: int
 ```
 
 ---
@@ -411,7 +459,7 @@ agentic-ats/
 ├── README.md                  # what it is, live URLs, disclaimer, how to run
 ├── pyproject.toml / uv.lock
 ├── .env.example               # all env vars, no values
-├── .gitignore                 # .env, runs/, chroma/, __pycache__/
+├── .gitignore                 # .env, runs/, chroma/, .cache/, data/generated/, __pycache__/
 ├── src/ats/
 │   ├── main.py                # FastAPI app + MCP mount
 │   ├── config.py              # pydantic-settings; caps, models, URLs
@@ -426,7 +474,9 @@ agentic-ats/
 │   └── api/                   # FastAPI routers
 ├── ui/app.py                  # Streamlit
 ├── scripts/                   # generate_data, ingest, run_eval
-├── data/                      # synthetic only; committed
+├── data/                      # synthetic only
+│   ├── jd_seeds/              # hand-written JD seeds; only analytics_manager.yaml is committed
+│   └── generated/             # generator output (jobs/, resumes/, answer_key.json); gitignored
 ├── eval/results/
 ├── tests/                     # unit (mocked LLM), mcp (in-memory Client), e2e smoke
 ├── docs/
