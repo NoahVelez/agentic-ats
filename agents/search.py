@@ -207,3 +207,95 @@ def run_search_agent(requirements, search_function=None):
         "candidates": candidates
     }
     
+
+# ==================================================
+# WEEK 2, DAY 2: ADAPTIVE SEARCH DECISIONS
+# ==================================================
+
+def decide_search_strategy(
+    candidate_count,
+    min_candidates=5,
+    max_candidates=20
+):
+    """
+    Decide whether the Search Agent should broaden,
+    narrow, or stop its search.
+    """
+
+    if candidate_count < min_candidates:
+        return {
+            "decision": "broaden",
+            "reason": "Too few candidates were found."
+        }
+
+    elif candidate_count > max_candidates:
+        return {
+            "decision": "narrow",
+            "reason": "Too many candidates were found."
+        }
+
+    else:
+        return {
+            "decision": "stop",
+            "reason": "The candidate count is within the target range."
+        }
+
+
+# ==================================================
+# BROADEN SEARCH
+# ==================================================
+
+def broaden_search_queries(classified_requirements):
+    """
+    Generate broader queries using individual
+    requirements instead of combined requirements.
+    """
+
+    queries = []
+
+    for item in classified_requirements:
+        requirement = item.get("requirement")
+
+        if requirement:
+            queries.append(requirement)
+
+    return list(dict.fromkeys(queries))
+
+
+# ==================================================
+# NARROW SEARCH
+# ==================================================
+
+def narrow_search_queries(classified_requirements):
+    """
+    Generate more specific queries using
+    must-have requirements.
+    """
+
+    must_have = []
+
+    for item in classified_requirements:
+
+        if item.get("category") == "must-have":
+            requirement = item.get("requirement")
+
+            if requirement:
+                must_have.append(requirement)
+
+    if len(must_have) >= 2:
+        return [" ".join(must_have)]
+
+    return must_have
+# ==================================================
+# SEARCH ITERATION LIMIT
+# ==================================================
+
+def should_continue_search(iteration, max_iterations=5):
+    """
+    Prevent the Search Agent from searching indefinitely.
+    """
+
+    if iteration >= max_iterations:
+        return False
+
+    return True
