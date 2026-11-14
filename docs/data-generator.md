@@ -1,6 +1,6 @@
 # Synthetic data generator
 
-`scripts/generate_data.py` builds the synthetic dataset described in [SPEC §6.1](./SPEC.md#61-synthetic-data-generator-scriptsgenerate_datapy):
+`scripts/generate_data.py` builds the synthetic dataset described in [SPEC §6.1](./specs/SPEC.md#61-synthetic-data-generator-scriptsgenerate_datapy):
 job descriptions, a pool of resumes for each job, and an **answer key** that says which resumes should be
 shortlisted and which line proves each requirement.
 

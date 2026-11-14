@@ -126,7 +126,11 @@ run state.
   round, the agent looks at the result counts and score distribution and chooses to **broaden**,
   **tighten**, or **stop**.
 - **Stop when:** 10–20 distinct candidates have at least one strong hit (score ≥ `STRONG_HIT`), or the loop
-  cap is reached.
+  cap is reached. *(proposed)* `score` is cosine similarity in [0, 1] (Chroma's cosine distance
+  converted as `1 − distance`), so the threshold does not depend on how a store reports distance.
+  `STRONG_HIT` is calibrated once per embedding model by `scripts/calibrate.py`: embed every
+  requirement's text, score it against the planted proof chunks from the answer key, and take the
+  25th percentile of those scores. The chosen value is written to `.env.example` with the model name.
 - **Output:** `CandidatePool` (candidate IDs + which queries hit them). Search returns no names.
 
 ### 4.3 Evaluator agent
@@ -176,6 +180,13 @@ Hard caps, all in `config.py` and overridable by env:
 | `MAX_POOL_SIZE` | 20 |
 | `RUN_TOKEN_BUDGET` | 300k tokens |
 | `RUN_COST_BUDGET_USD` | 1.00 |
+| `EVAL_CONCURRENCY` *(proposed)* | 5 |
+| `STRONG_HIT` *(proposed)* | calibrated per embedding model (§4.2); no default |
+
+*(proposed)* **Cost accounting.** `LLM_PRICE_IN_PER_MTOK` and `LLM_PRICE_OUT_PER_MTOK` (USD per million
+input/output tokens) set the price of `LLM_MODEL`, so cost works for any provider without a built-in
+price table. `cost_usd = tokens_in × in_price / 1e6 + tokens_out × out_price / 1e6`. An agentic run
+refuses to start if either price is unset, because the cost budget could not be enforced.
 
 If a run exceeds its budget, the orchestrator stops it with `status=failed` and `reason=budget_exceeded`,
 and the trace stays intact.
@@ -236,7 +247,7 @@ or a small ASGI middleware. The public deployment always sets this key.
   `data/generated/resumes/*.json`, and `data/generated/answer_key.json`. The generator is seeded, so
   runs are reproducible. Generated files are **not committed**: each environment (including the
   Docker build) regenerates them. Only the template seed `data/jd_seeds/analytics_manager.yaml` is
-  committed. Usage: [data-generator.md](./data-generator.md).
+  committed. Usage: [data-generator.md](../data-generator.md).
 - For each JD, it plants these archetypes:
 
 | Archetype | Description | Correct verdict |
@@ -450,6 +461,20 @@ The **same JDs** go through three systems: `keyword` (BM25), `embedding` (cosine
 N = the planted shortlist size for that JD. We'll also run each agentic configuration 3 times and
 report the variance, since LLM output is nondeterministic.
 
+*(proposed)* **Requirement-level accuracy uses the answer key's requirements.** In a normal agentic run
+the Requirements agent writes its own requirements and IDs, which can't be matched reliably to the
+answer key's `R1…Rn`. So this metric comes from a separate **gold-requirements mode**:
+`run_eval.py` loads `RequirementSet` from the answer key (`equivalents` = the seed's `keywords`),
+skips the Requirements and Search agents, and runs Evaluator + Verifier on every non-`filler`
+candidate in the JD pool (28 per JD by default). Each final claim is compared with the answer key's
+verdict for the same `requirement_id`, with `unverified` counted as `missing`. The report includes
+accuracy plus a met/partial/missing confusion matrix, broken down by archetype. All other metrics
+use the normal end-to-end run. This keeps the metric focused on the Evaluator, as the table says.
+
+*(proposed)* **Dataset version.** Every `EvalReport` records which dataset it ran on: the answer key's
+`seed` and `generator`, plus `DATASET_URL` if one was used (§13). Results are only comparable when
+they used the same dataset.
+
 ---
 
 ## 12. Repository layout
@@ -473,20 +498,23 @@ agentic-ats/
 │   ├── tracing.py
 │   └── api/                   # FastAPI routers
 ├── ui/app.py                  # Streamlit
-├── scripts/                   # generate_data, ingest, run_eval
+├── scripts/                   # generate_data, ingest, run_eval, calibrate (proposed, §4.2)
 ├── data/                      # synthetic only
 │   ├── jd_seeds/              # hand-written JD seeds; only analytics_manager.yaml is committed
 │   └── generated/             # generator output (jobs/, resumes/, answer_key.json); gitignored
 ├── eval/results/
 ├── tests/                     # unit (mocked LLM), mcp (in-memory Client), e2e smoke
 ├── docs/
-│   ├── SPEC.md
+│   ├── specs/SPEC.md
+│   ├── data-generator.md
 │   └── incidents/             # INC-###.md + README index
 └── Dockerfile
 ```
 
 **Environment variables:** `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL`, `EMBEDDING_MODEL`, `MCP_URL`,
 `MCP_API_KEY`, `APP_API_KEY`, `API_BASE_URL` (used by the UI), `CHROMA_DIR`, `RUNS_DIR`, and the caps in §4.5.
+*(proposed)* Also `LLM_PRICE_IN_PER_MTOK`, `LLM_PRICE_OUT_PER_MTOK` (§4.5) and `DATASET_URL` (§13). The data
+generator uses its own `DATAGEN_LLM_PROVIDER`, `DATAGEN_LLM_MODEL`, and `DATAGEN_LLM_API_KEY`.
 
 ---
 
@@ -501,6 +529,20 @@ agentic-ats/
   shows a **pre-computed demo run** by default. Starting a new agentic run needs a demo passcode.
 - The MCP endpoint is public at `https://<api-host>/mcp/` and needs a bearer token, so we can connect
   MCP Inspector to it live during the defense.
+
+### 13.1 Dataset for builds and eval *(proposed)*
+
+Generated data is not committed (§6.1), so the Docker build has to get it from somewhere:
+
+1. Once the generator's LLM output is good, one person generates the **canonical dataset**, zips
+   `data/generated/`, and attaches it to a GitHub release tagged `dataset-vN`, with the seed, model,
+   and commit in the release notes.
+2. The Dockerfile downloads the zip from `DATASET_URL` (pinned to a release tag) into
+   `data/generated/`, then runs ingest. If `DATASET_URL` is unset (local builds, CI), it runs
+   `generate_data.py --offline` instead, so no API key is needed at build time.
+3. The final eval in `eval/results/` and the public demo use the same `dataset-vN`.
+4. The answer key ships in the image only so `run_eval.py` and the eval endpoints can use it. No MCP
+   tool or resource reads it, and the MCP contract tests assert that.
 
 ---
 
@@ -580,3 +622,6 @@ the shortlist, interview questions for each gap, a live trace panel (SSE), and a
 | 3 | API host (Render, Railway, or Fly) | Render |
 | 4 | Agent framework vs. plain Python | Plain Python + `fastmcp.Client`, which keeps loops and caps explicit |
 | 5 | Public demo: live runs or pre-computed only | Pre-computed by default, live runs behind a passcode |
+| 6 | Mapping agent requirements to the answer key *(proposed)* | Gold-requirements eval mode for requirement-level accuracy (§11) |
+| 7 | Where the build gets its dataset *(proposed)* | `DATASET_URL` release zip; `--offline` when unset (§13.1) |
+| 8 | `STRONG_HIT`, `EVAL_CONCURRENCY`, LLM prices *(proposed)* | Calibrated per embedding model; 5; set by env (§4.2, §4.5) |
