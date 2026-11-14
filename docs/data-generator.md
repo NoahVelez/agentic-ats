@@ -368,13 +368,14 @@ GitHub release asset, and record the seed, model, and commit with it.
 | [src/ats/datagen/pipeline.py](../src/ats/datagen/pipeline.py) | Runs facts → render → validate with retries |
 | [src/ats/datagen/io.py](../src/ats/datagen/io.py) | Seed loading and output writing |
 | [src/ats/datagen/templates.py](../src/ats/datagen/templates.py) | Career-field profiles and offline text |
-| [src/ats/datagen/text.py](../src/ats/datagen/text.py) | Tokenizing, keyword matching, PII patterns |
+| [src/ats/datagen/text.py](../src/ats/datagen/text.py) | Keyword matching and token overlap |
+| [src/ats/text.py](../src/ats/text.py) | Tokenizing and PII patterns, shared with ingest |
 | [src/ats/models.py](../src/ats/models.py) | `JobDescription`, `Requirement`, `Resume`, `AnswerKey` |
 
 Tests use a fake LLM and never touch the network:
 
 ```powershell
-uv run pytest -q tests/datagen
+uv run python -m pytest -q tests/datagen
 uv run ruff check .
 uv run ruff format --check .
 ```

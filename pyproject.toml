@@ -8,6 +8,12 @@ dependencies = [
     "pyyaml>=6.0",
     "faker>=30.0",
     "rank-bm25>=0.2.2",
+    "fastmcp>=2,<3",
+    "chromadb>=1.5.9",
+    "fastapi>=0.163.0",
+    "uvicorn[standard]>=0.54.0",
+    "pydantic-settings>=2.16.3",
+    "httpx>=0.28.1",
 ]
 
 [project.optional-dependencies]
@@ -20,6 +26,7 @@ datagen-llm = [
 [dependency-groups]
 dev = [
     "pytest>=8.0",
+    "pytest-asyncio>=1.5.0",
     "ruff>=0.6",
 ]
 
@@ -33,6 +40,8 @@ packages = ["src/ats"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.ruff]
 line-length = 100

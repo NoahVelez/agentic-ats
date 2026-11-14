@@ -209,10 +209,10 @@ input and output schemas show up in MCP Inspector.
 | `get_job` | `(job_id: str) -> JobDescription` | Requirements | |
 | `list_jobs` | `() -> list[JobSummary]` | UI/debug | |
 | `search_resumes` | `(query: str, k: int = 20, section: Section \| None = None) -> list[SearchHit]` | Search | Vector search across the pool. Returns `candidate_id`, `chunk_id`, `score`, and a ≤200-char snippet. No names. |
-| `get_pool_stats` | `(hits: list[str]) -> PoolStats` | Search | Distinct candidates, score histogram |
+| `get_pool_stats` | `(hits: list[SearchHit]) -> PoolStats` | Search | Distinct candidates, score histogram. *(proposed)* Takes the hits themselves, not ids (was `list[str]`): the histogram needs their scores. Also counts candidates with a strong hit when `STRONG_HIT` is set. |
 | `get_candidate_chunks` | `(candidate_id: str, sections: list[Section] \| None = None) -> list[Chunk]` | Evaluator | Returns that candidate's chunks only, with PII redacted |
 | `search_candidate` | `(candidate_id: str, query: str, k: int = 5) -> list[Chunk]` | Evaluator | Vector search filtered to one candidate |
-| `verify_quote` | `(candidate_id: str, chunk_id: str, quote: str) -> QuoteCheck` | Verifier | Deterministic. Returns `ok`, `reason` (`ok`, `wrong_candidate`, `not_verbatim`, `chunk_not_found`) |
+| `verify_quote` | `(candidate_id: str, chunk_id: str, quote: str) -> QuoteCheck` | Verifier | Deterministic. Returns `ok`, `reason` (`ok`, `wrong_candidate`, `not_verbatim`, `chunk_not_found`, `missing_quote`) |
 | `keyword_baseline` | `(job_id: str, top_n: int = 20) -> list[RankedCandidate]` | Eval | BM25 |
 | `embedding_baseline` | `(job_id: str, top_n: int = 20) -> list[RankedCandidate]` | Eval | Cosine similarity, whole resume vs. JD |
 
@@ -230,7 +230,10 @@ input and output schemas show up in MCP Inspector.
 2. `get_candidate_chunks`, `search_candidate`, and `verify_quote` never return a chunk whose
    `candidate_id` differs from the argument.
 3. Every tool call is logged to the active run's trace with args, result size, and latency. Run
-   context is passed through the `X-Run-Id` header.
+   context is passed through the `X-Run-Id` header. *(proposed)* A call is only logged if
+   `runs/{run_id}/` already exists, so whoever starts a run creates its folder first. The header
+   ends up in a file path, so ids must match `[A-Za-z0-9][A-Za-z0-9_-]{0,63}`; anything else is
+   ignored.
 
 ### 5.4 Access control
 
@@ -272,8 +275,12 @@ or a small ASGI middleware. The public deployment always sets this key.
 2. Redact PII. PII lives in separate fields of the generator output and never goes into chunk text.
    A regex pass also catches emails, phone numbers, and URLs.
 3. Embed the chunks and upsert them into a Chroma collection `resumes`, with metadata
-   `{candidate_id, section, job_ids}`.
+   `{candidate_id, section, job_ids}`. *(proposed)* A second collection, `resume_docs`, holds one
+   whole-resume vector per candidate for the baselines. The index records which embedder built
+   it, and the server refuses to query it with a different one.
 4. Store the original chunk text unchanged. `verify_quote` compares quotes against this exact text.
+5. *(proposed)* If an answer key is present, ingest checks that every proof line is still a whole,
+   unchanged bullet in the index, and fails if one is not.
 
 ### 6.3 Retrieval failure modes and how we catch them
 
@@ -506,7 +513,7 @@ agentic-ats/
 ├── tests/                     # unit (mocked LLM), mcp (in-memory Client), e2e smoke
 ├── docs/
 │   ├── specs/SPEC.md
-│   ├── data-generator.md
+│   ├── data-generator.md / mcp-server.md
 │   └── incidents/             # INC-###.md + README index
 └── Dockerfile
 ```
@@ -515,6 +522,9 @@ agentic-ats/
 `MCP_API_KEY`, `APP_API_KEY`, `API_BASE_URL` (used by the UI), `CHROMA_DIR`, `RUNS_DIR`, and the caps in §4.5.
 *(proposed)* Also `LLM_PRICE_IN_PER_MTOK`, `LLM_PRICE_OUT_PER_MTOK` (§4.5) and `DATASET_URL` (§13). The data
 generator uses its own `DATAGEN_LLM_PROVIDER`, `DATAGEN_LLM_MODEL`, and `DATAGEN_LLM_API_KEY`.
+*(proposed)* Embeddings need `EMBEDDING_PROVIDER` (`openai` for any OpenAI-compatible endpoint, or
+`hash` for an offline word-matching embedder used in tests and CI), `EMBEDDING_API_KEY`, and optionally
+`EMBEDDING_BASE_URL`. `DATA_DIR` (default `data/generated`) says where the generated dataset is.
 
 ---
 
