@@ -12,7 +12,7 @@ from ats.datagen.pipeline import GenerationConfig, GenerationError, generate
 from ats.datagen.render import LLMRenderer, OfflineRenderer
 from ats.datagen.validate import check_pii, resume_text
 from ats.models import AnswerKey
-from scripts.generate_data import main
+from scripts.generate_data import datagen_env, main
 
 from .conftest import SEED_PATH, SMALL_COUNTS, FakeLLM, fake_body
 
@@ -126,5 +126,37 @@ def test_cli_offline(tmp_path, capsys) -> None:
 def test_cli_requires_llm_env_unless_offline(tmp_path, monkeypatch, capsys) -> None:
     for var in ("DATAGEN_LLM_PROVIDER", "DATAGEN_LLM_MODEL", "DATAGEN_LLM_API_KEY"):
         monkeypatch.delenv(var, raising=False)
-    assert main(["--seeds", str(SEED_PATH), "--out", str(tmp_path)]) == 1
+    # Always point --env-file away from the real .env: with real keys there, this call would
+    # otherwise make paid LLM requests.
+    base = ["--seeds", str(SEED_PATH), "--out", str(tmp_path / "out")]
+    assert main([*base, "--env-file", str(tmp_path / "missing.env")]) == 1
     assert "DATAGEN_LLM_PROVIDER" in capsys.readouterr().err
+    assert not (tmp_path / "out").exists()
+
+
+def test_cli_reads_datagen_settings_from_env_file(tmp_path, monkeypatch, capsys) -> None:
+    for var in ("DATAGEN_LLM_PROVIDER", "DATAGEN_LLM_MODEL", "DATAGEN_LLM_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    env_file = tmp_path / "test.env"
+    env_file.write_text(
+        "DATAGEN_LLM_PROVIDER=from-file\nDATAGEN_LLM_MODEL=m\nDATAGEN_LLM_API_KEY=\n",
+        encoding="utf-8",
+    )
+    assert datagen_env(env_file)["DATAGEN_LLM_PROVIDER"] == "from-file"
+    assert "DATAGEN_LLM_API_KEY" not in datagen_env(env_file)  # empty counts as unset
+
+    base = ["--seeds", str(SEED_PATH), "--out", str(tmp_path / "out"), "--env-file", str(env_file)]
+    assert main(base) == 1
+    assert "missing env vars: DATAGEN_LLM_API_KEY" in capsys.readouterr().err
+
+    # A complete file is used (the unknown provider proves it was read, with no request made),
+    # and the shell wins over the file.
+    env_file.write_text(
+        "DATAGEN_LLM_PROVIDER=from-file\nDATAGEN_LLM_MODEL=m\nDATAGEN_LLM_API_KEY=k\n",
+        encoding="utf-8",
+    )
+    assert main(base) == 1
+    assert "unknown DATAGEN_LLM_PROVIDER 'from-file'" in capsys.readouterr().err
+    monkeypatch.setenv("DATAGEN_LLM_PROVIDER", "from-shell")
+    assert main(base) == 1
+    assert "unknown DATAGEN_LLM_PROVIDER 'from-shell'" in capsys.readouterr().err

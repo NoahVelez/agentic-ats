@@ -138,6 +138,28 @@ def test_openai_embedder_rejects_bad_responses(response: httpx.Response, match: 
         emb.embed(["abc"])
 
 
+def test_anthropic_key_is_never_sent_to_another_embedding_host() -> None:
+    sent: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return ok_response(request)
+
+    claude_key = "sk-ant-api03-not-a-real-key"
+    with pytest.raises(EmbeddingConfigError, match="api.openai.com") as exc:
+        OpenAICompatEmbedder("m", claude_key, client=make_client(handler))
+    assert claude_key not in str(exc.value)
+    with pytest.raises(EmbeddingConfigError, match="Anthropic"):
+        embedder_from_settings(
+            settings(embedding_provider="openai", embedding_model="m", embedding_api_key=claude_key)
+        )
+    assert sent == []
+    # Only refused when the destination is not Anthropic itself.
+    OpenAICompatEmbedder(
+        "m", claude_key, "https://api.anthropic.com/v1", client=make_client(handler)
+    )
+
+
 def settings(**kwargs) -> Settings:
     return Settings(_env_file=None, **kwargs)
 

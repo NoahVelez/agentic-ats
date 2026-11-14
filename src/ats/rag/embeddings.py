@@ -87,6 +87,14 @@ class OpenAICompatEmbedder:
     ) -> None:
         self.model = model
         self.name = f"openai:{model}"
+        host = httpx.URL(base_url).host
+        if api_key.startswith("sk-ant-") and not host.endswith("anthropic.com"):
+            # Refuse before any request is made: the key would otherwise be sent to another company.
+            raise EmbeddingConfigError(
+                f"EMBEDDING_API_KEY looks like an Anthropic (Claude) key, but embeddings go to "
+                f"{host}. Anthropic keys cannot be used for embeddings; set EMBEDDING_API_KEY to "
+                "a key from your embedding provider, or use EMBEDDING_PROVIDER=hash."
+            )
         self._url = base_url.rstrip("/") + "/embeddings"
         self._headers = {"Authorization": f"Bearer {api_key}"}
         self._batch_size = batch_size

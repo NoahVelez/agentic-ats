@@ -4,14 +4,19 @@ Examples:
     uv run python scripts/generate_data.py --offline
     DATAGEN_LLM_PROVIDER=openai DATAGEN_LLM_MODEL=... DATAGEN_LLM_API_KEY=... \
         uv run python scripts/generate_data.py --seed 42
+
+DATAGEN_LLM_* are read from the shell environment, then from the .env file in the repo root.
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from pathlib import Path
+
+from dotenv import dotenv_values
 
 ROOT = Path(__file__).resolve().parents[1]
 try:
@@ -62,8 +67,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--workers", type=int, default=4, help="concurrent render workers")
     p.add_argument("--cache-dir", type=Path, default=ROOT / DEFAULT_CACHE_DIR)
     p.add_argument("--no-cache", action="store_true", help="disable the LLM response cache")
+    p.add_argument(
+        "--env-file",
+        type=Path,
+        default=ROOT / ".env",
+        help="file to read DATAGEN_LLM_* from when they are not set in the shell (default: .env)",
+    )
     p.add_argument("-v", "--verbose", action="store_true")
     return p
+
+
+def datagen_env(env_file: Path) -> dict[str, str]:
+    """Shell variables win; empty values on either side count as unset."""
+    from_file = {k: v for k, v in dotenv_values(env_file).items() if v}
+    return {**from_file, **{k: v for k, v in os.environ.items() if v}}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -78,7 +95,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.offline:
             renderer = OfflineRenderer(args.seed)
         else:
-            client = client_from_env(cache_dir=None if args.no_cache else args.cache_dir)
+            client = client_from_env(
+                datagen_env(args.env_file),
+                cache_dir=None if args.no_cache else args.cache_dir,
+            )
             renderer = LLMRenderer(client)
         config = GenerationConfig(
             seed=args.seed,

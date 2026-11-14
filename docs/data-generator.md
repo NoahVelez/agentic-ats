@@ -136,6 +136,11 @@ DATAGEN_LLM_PROVIDER=openai DATAGEN_LLM_MODEL=<model-name> DATAGEN_LLM_API_KEY=<
 Never commit a key. `.env` is gitignored and `.env.example` lists the variable names without values.
 Without `--offline`, the script exits with an error if any of the three variables is missing.
 
+The three variables can also go in the `.env` file in the repository root instead of the shell.
+Shell values win, and empty values count as unset. Once all three are set in `.env`, running the
+script without `--offline` makes paid LLM requests, so add `--offline` when you only want template
+data.
+
 If the LLM returns something that doesn't parse into the expected JSON structure, the renderer asks
 again up to 2 more times before counting that as a failed attempt.
 
@@ -158,6 +163,7 @@ again up to 2 more times before counting that as a failed attempt.
 | `--workers N` | `4` | Candidates rendered in parallel (does not change the output) |
 | `--cache-dir DIR` | `.cache/datagen` | Where LLM responses are cached |
 | `--no-cache` | off | Always call the LLM; don't read or write the cache |
+| `--env-file FILE` | `.env` | Where to read `DATAGEN_LLM_*` from when they are not set in the shell |
 | `-v`, `--verbose` | off | Log each rejected attempt and retry |
 
 Examples:
@@ -349,7 +355,7 @@ GitHub release asset, and record the seed, model, and commit with it.
 
 | Message | What to do |
 |---|---|
-| `missing env vars: DATAGEN_LLM_...` | Set the three variables, or add `--offline` |
+| `missing env vars: DATAGEN_LLM_...` | Set the three variables in the shell or in `.env`, or add `--offline` |
 | `provider 'openai' needs its SDK` | `uv sync --extra datagen-llm` |
 | `JD seed problems: ...` | Fix the listed bullets. Usually a paraphrase uses a JD keyword, or a JD phrasing is missing its keyword |
 | `cand_XXXX (...) failed validation after 3 attempts: ...` | Run with `-v` to see each attempt. If the LLM keeps using a forbidden word, try another model or raise `--max-attempts`. If offline mode fails, a template bullet or skill probably clashes with a new seed's keywords |
