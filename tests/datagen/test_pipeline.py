@@ -47,6 +47,14 @@ def test_offline_full_pool(seed: JDSeed, offline_result) -> None:
                 assert resume.experience[loc.entry_index].bullets[loc.bullet_index] == rk.proof
 
 
+def test_offline_resumes_never_repeat_a_bullet(offline_result) -> None:
+    for resume in offline_result.resumes:
+        bullets = [b for e in resume.experience for b in e.bullets]
+        bullets += [b for p in resume.projects for b in p.bullets]
+        assert len(bullets) == len(set(bullets)), resume.candidate_id
+        assert all(2 <= len(e.bullets) for e in resume.experience), resume.candidate_id
+
+
 def test_offline_bm25_report(offline_result) -> None:
     job = offline_result.report["bm25"]["jd_analytics_mgr"]
     assert job["top_n"] == 16 and job["pool_size"] == 50

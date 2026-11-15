@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable
 
 from rank_bm25 import BM25Okapi
@@ -112,6 +113,14 @@ def check_forbidden_keywords(resume: Resume, facts: FactSheet) -> list[str]:
     return issues
 
 
+def check_repeated_bullets(resume: Resume) -> list[str]:
+    """No bullet may appear twice in one resume (experience and projects together)."""
+    bullets = [b for e in resume.experience for b in e.bullets]
+    bullets += [b for p in resume.projects for b in p.bullets]
+    counts = Counter(" ".join(b.lower().split()) for b in bullets)
+    return [f"bullet appears {n} times: {text[:80]!r}" for text, n in counts.items() if n > 1]
+
+
 def check_keyword_stuffer(resume: Resume, jd: JDSeed) -> list[str]:
     skills = "\n".join(resume.skills)
     missing = [kw for kw in jd.all_keywords if not contains_keyword(skills, kw)]
@@ -137,7 +146,10 @@ def validate_resume(
     jaccard_threshold: float = DEFAULT_JACCARD_THRESHOLD,
 ) -> list[str]:
     issues = (
-        check_proofs(resume, keys) + check_pii(resume) + check_forbidden_keywords(resume, facts)
+        check_proofs(resume, keys)
+        + check_pii(resume)
+        + check_forbidden_keywords(resume, facts)
+        + check_repeated_bullets(resume)
     )
     if facts.archetype == "keyword_stuffer":
         issues += check_keyword_stuffer(resume, jd)

@@ -167,17 +167,24 @@ class OfflineRenderer:
             return not find_keywords(text, facts.forbidden_keywords)
 
         pool = [b for b in profile.bullets if ok(b) and b.lower() not in proof_texts]
-        if len(pool) < 2:
-            raise RenderError(f"{facts.candidate_id}: too few usable template bullets")
+        n_roles = len(facts.roles)
+        if len(pool) < n_roles:
+            raise RenderError(
+                f"{facts.candidate_id}: {len(pool)} usable template bullets for {n_roles} roles"
+            )
         rng.shuffle(pool)
         companies = list(profile.companies)
         rng.shuffle(companies)
 
+        # Bullets are dealt out without replacement, so none repeats within a resume. Each role
+        # takes 2-3, but never so many that a later role would be left short.
+        floor = 2 if len(pool) >= 2 * n_roles else 1
         experience = []
         cursor = 0
         for i, role in enumerate(facts.roles):
-            k = rng.randint(2, 3)
-            bullets = [pool[(cursor + j) % len(pool)] for j in range(k)]
+            roles_left = n_roles - i - 1
+            k = max(floor, min(rng.randint(2, 3), len(pool) - cursor - floor * roles_left))
+            bullets = pool[cursor : cursor + k]
             cursor += k
             experience.append(
                 ExperienceEntry(
@@ -185,7 +192,7 @@ class OfflineRenderer:
                     title=role.title,
                     start=role.start,
                     end=role.end,
-                    bullets=list(dict.fromkeys(bullets)),
+                    bullets=bullets,
                 )
             )
 

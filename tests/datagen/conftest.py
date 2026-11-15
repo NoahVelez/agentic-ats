@@ -31,7 +31,7 @@ def fake_body(n_roles: int, extra_bullet: str | None = None) -> dict:
     for i in range(n_roles):
         bullets = [
             f"Handled day-to-day operations for site {i + 1}",
-            "Kept weekly records tidy and up to date",
+            f"Kept weekly records tidy and up to date for team {i + 1}",
         ]
         if extra_bullet and i == 0:
             bullets.append(extra_bullet)

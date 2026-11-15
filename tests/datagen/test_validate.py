@@ -14,6 +14,7 @@ from ats.datagen.validate import (
     check_keyword_stuffer,
     check_pii,
     check_proofs,
+    check_repeated_bullets,
     overlap_score,
     validate_resume,
 )
@@ -92,6 +93,31 @@ def test_proof_checks(built) -> None:
     loc = next(k.location for k in keys if k.location)
     tampered.experience[loc.entry_index].bullets[loc.bullet_index] += " (edited)"
     assert check_proofs(tampered, keys)
+
+
+def test_repeated_bullets_are_rejected(seed: JDSeed, built) -> None:
+    facts, resume, keys = built["filler"]
+    assert check_repeated_bullets(resume) == []
+    repeated = resume.model_copy(deep=True)
+    original = repeated.experience[0].bullets[0]
+    # Same words with different case and spacing still count as a repeat.
+    repeated.experience[-1].bullets.append("  " + original.upper().replace(" ", "  "))
+    [issue] = check_repeated_bullets(repeated)
+    assert issue.startswith("bullet appears 2 times")
+    assert issue in validate_resume(repeated, keys, facts, seed)
+
+
+def test_every_career_field_has_enough_distinct_bullets(seed: JDSeed) -> None:
+    from ats.datagen.templates import FIELDS
+    from ats.text import PII_PATTERNS
+
+    for name, profile in FIELDS.items():
+        assert len(set(profile.bullets)) == len(profile.bullets), name
+        # Enough for 4 roles of 3 bullets even when every JD keyword is off limits.
+        usable = [b for b in profile.bullets if not find_keywords(b, seed.all_keywords)]
+        assert len(usable) >= 12, (name, len(usable))
+        for bullet in profile.bullets:
+            assert not any(pattern.search(bullet) for _, pattern in PII_PATTERNS), bullet
 
 
 def test_missing_keywords_only_in_skills(seed: JDSeed, built) -> None:
