@@ -36,26 +36,74 @@ Then:
 
 `data/generated/`, `chroma/`, and `runs/` are all gitignored.
 
+That quick start uses the offline word-matching embedder. For real results, use the project's
+embedding model (no API key; the first run downloads about 64 MB):
+
+```powershell
+$env:EMBEDDING_PROVIDER = "fastembed"              # or set it in .env
+uv run python scripts/ingest.py
+uv run python -m uvicorn ats.main:app
+```
+
 ## Embedding models
 
 Ingest and the server must use the **same** embedder: queries have to be turned into vectors the
-same way the index was. The index records which embedder built it, and the server refuses to
-search an index built with a different one.
+same way the index was. The index records the embedder's name and vector size, and the server
+refuses to search an index built with a different one.
 
 | `EMBEDDING_PROVIDER` | What it is | Use it for |
 |---|---|---|
-| `openai` | Any OpenAI-compatible `/embeddings` endpoint. Needs `EMBEDDING_MODEL` and `EMBEDDING_API_KEY`; `EMBEDDING_BASE_URL` changes the host. | Real runs and every reported result |
+| `fastembed` | A local ONNX model run in-process by fastembed. Default `BAAI/bge-small-en-v1.5` (384 dimensions). No API key and no torch. | **The project's embedding model:** real runs and every reported result |
 | `hash` | Built in, offline, deterministic. Matches on shared (stemmed) words only. | Tests, CI, and wiring things up locally |
+| `openai` | Any OpenAI-compatible `/embeddings` endpoint. Needs `EMBEDDING_MODEL` and `EMBEDDING_API_KEY`. | Not used by this project; tested against a mock server only |
 
 `scripts/ingest.py --offline` is a shortcut for the `hash` embedder.
 
 **Do not report results from the `hash` embedder.** It has no notion of meaning, so "led a
-5-person group" does not match "people management". On the offline dataset its embedding
-baseline picks the same kinds of candidates as the keyword baseline (every keyword stuffer, no
-hidden gem). The project's main comparison needs a real embedding model.
+5-person group" does not match "people management". Its embedding baseline picks the same kinds
+of candidates as the keyword baseline.
 
-The `openai` embedder is tested against a mock server only. It has not yet been run against a
-live provider.
+### The fastembed model
+
+- **Download.** The model is fetched from Hugging Face on first use, into `EMBEDDING_CACHE_DIR`
+  if that is set, otherwise into fastembed's own cache in the temp folder.
+  `uv run python scripts/download_model.py` fetches it ahead of time. The `Dockerfile` runs that
+  at build time and then sets `HF_HUB_OFFLINE=1`, so a container never downloads at runtime.
+- **It is a quantized export.** fastembed serves `BAAI/bge-small-en-v1.5` from
+  `Qdrant/bge-small-en-v1.5-onnx-Q`, so scores can differ slightly from the original weights.
+- **Queries get an instruction, indexed text does not.** Search queries are prefixed with
+  `Represent this sentence for searching relevant passages: `, as BGE expects. Chunks are indexed
+  without it. `embedding_baseline` compares the whole job description with whole resumes as two
+  documents, so it does not use the prefix either.
+- **Input is cut off at 512 tokens.** Chunks are well under that. Whole resumes and job
+  descriptions can exceed it, which affects `embedding_baseline` only.
+- **Loaded lazily.** fastembed is imported when the first text is embedded, so `hash` mode and CI
+  never load it.
+- **Scores are compressed.** Unrelated text still scores around 0.45 to 0.6 against a requirement,
+  and good matches around 0.55 to 0.8. One chunk's score cannot cleanly separate a paraphrased
+  match from unrelated text; `tests/rag/test_fastembed_real.py` records what does and does not hold.
+
+The real-model tests are skipped by default. Run them with `uv run python -m pytest -m slow`.
+
+### Calibrating STRONG_HIT
+
+`get_pool_stats` counts a candidate as having a strong hit when their best chunk scores at or
+above `STRONG_HIT`. The value depends on the embedding model and the dataset, so measure it:
+
+```powershell
+uv run python scripts/calibrate.py                        # all sections
+uv run python scripts/calibrate.py --section experience   # experience chunks only
+```
+
+The script uses each requirement's text as the query, scores the chunk holding each planted proof
+line, and prints the 25th percentile as `STRONG_HIT`. It also prints, per requirement, how many
+candidates clear that score among those the answer key says have the requirement and those it
+says lack it, plus an AUC (0.5 is chance, 1.0 is perfect separation).
+
+Read those columns before trusting the number. With bge-small on the seed-42 dataset the value
+was 0.506, and when searching all sections nearly every candidate cleared it for the must-haves,
+mostly through their skills list. Restricting search to experience chunks separated candidates
+much better (AUC 0.78 to 0.95 per requirement), though still not cleanly.
 
 ## Ingest
 
@@ -86,7 +134,7 @@ Data Analyst, Tidewater Logistics Tech (2023-04 to Present)
 Ingest prints a summary and exits non-zero if something is wrong:
 
 ```
-Indexed 50 resumes (339 chunks, largest ~116 tokens) for 1 job(s) into chroma (embedder: hash:bow-512)
+Indexed 50 resumes (343 chunks, largest ~115 tokens) for 1 job(s) into chroma (embedder: hash:bow-512)
 Every answer-key proof line is in the index word for word.
 ```
 
@@ -108,7 +156,8 @@ Settings come from the environment or a `.env` file (see `.env.example`). The on
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `EMBEDDING_API_KEY` | none | Must match what ingest used |
+| `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL` | none | Must match what ingest used |
+| `EMBEDDING_CACHE_DIR` | fastembed's default | Where the fastembed model is stored |
 | `DATA_DIR` | `data/generated` | Where `jobs/*.json` is read from |
 | `CHROMA_DIR` | `chroma` | The vector store |
 | `RUNS_DIR` | `runs` | Where run traces are written |
@@ -203,12 +252,13 @@ Things to know when calling:
 
 | Message | What to do |
 |---|---|
-| `EMBEDDING_PROVIDER is not set` | Set it to `openai` or `hash` for the server, or pass `--offline` to ingest |
+| `EMBEDDING_PROVIDER is not set` | Set it to `fastembed` or `hash` for the server, or pass `--offline` to ingest |
+| `could not load embedding model ...` | The model is downloaded on first use. Check the network, or that `EMBEDDING_CACHE_DIR` holds the model when offline |
 | `no vector store at ...` / `has no data` | Run `scripts/ingest.py` |
 | `the index was built with embedder 'X' but 'Y' is configured` | Re-run ingest, or change `EMBEDDING_PROVIDER` / `EMBEDDING_MODEL` to match the index |
 | `no jobs or resumes under ...` | Run `scripts/generate_data.py` first |
 | `... proof line not found verbatim` | The dataset and index disagree. Regenerate the data and re-ingest. |
-| `embedding request rejected (HTTP 401)` | Check `EMBEDDING_API_KEY` |
+| `EMBEDDING_API_KEY looks like an Anthropic (Claude) key` | Empty `EMBEDDING_API_KEY`; Claude keys cannot make embeddings. Use `EMBEDDING_PROVIDER=fastembed` |
 | `401 {"error": "unauthorized"}` from `/mcp` | Send `Authorization: Bearer <MCP_API_KEY>` |
 | Tool calls missing from a trace | Create `runs/{run_id}/` first and send `X-Run-Id` |
 
@@ -217,6 +267,9 @@ Things to know when calling:
 | File | Role |
 |---|---|
 | [scripts/ingest.py](../scripts/ingest.py) | Ingest CLI |
+| [scripts/download_model.py](../scripts/download_model.py) | Fetch the fastembed model ahead of time |
+| [scripts/calibrate.py](../scripts/calibrate.py) | Measure `STRONG_HIT` for the configured embedding model |
+| [Dockerfile](../Dockerfile) | Installs the app and downloads the model at build time |
 | [src/ats/rag/chunking.py](../src/ats/rag/chunking.py) | Section-aware chunks |
 | [src/ats/rag/redaction.py](../src/ats/rag/redaction.py) | Redaction at ingest and the tool response filter |
 | [src/ats/rag/embeddings.py](../src/ats/rag/embeddings.py) | `Embedder` interface, `openai` and `hash` embedders |

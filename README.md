@@ -39,8 +39,13 @@ uv run python -m uvicorn ats.main:app              # http://localhost:8000
 - MCP endpoint: `http://localhost:8000/mcp/` (connect MCP Inspector or any MCP client)
 
 `--offline` uses template resumes and a word-matching embedder so everything runs without keys.
-That is enough to develop against, but not to draw conclusions from: real runs need an LLM for the
-generator and a real embedding model. See the two guides for how to configure them.
+That is enough to develop against, but not to draw conclusions from. Real runs use:
+
+- **Embeddings:** `BAAI/bge-small-en-v1.5`, run locally through fastembed. No API key. Set
+  `EMBEDDING_PROVIDER=fastembed` and run `scripts/ingest.py` without `--offline`.
+- **Resume text:** an LLM for the generator, set with the `DATAGEN_LLM_*` variables.
+
+The two guides cover both.
 
 ## Configuration and secrets
 

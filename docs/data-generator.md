@@ -34,8 +34,8 @@ finishes in about a second. It writes to `data/generated/` by default:
 Wrote 1 job(s), 50 resumes, and the answer key to data\generated (generator: offline)
 
 BM25 ranks for jd_analytics_mgr (pool 50, top-N = 16):
-  hidden_gem:      cand_0017=19, cand_0043=20, ...
-  keyword_stuffer: cand_0035=1, cand_0046=2, ...
+  hidden_gem:      cand_0043=18, cand_0017=20, ...
+  keyword_stuffer: cand_0035=1, cand_0045=2, ...
 ```
 
 To keep a dataset separate from the default one, write somewhere else:
@@ -315,6 +315,7 @@ it still fails, the run stops with an error naming the candidate and the problem
 | Every proof line appears verbatim in the resume, at its recorded location | all |
 | No text field contains the candidate's name, email, phone, or street address | all |
 | No text field matches an email, phone-number, or URL pattern | all |
+| No bullet appears twice in one resume (experience and projects together) | all |
 | Keywords for requirements the candidate **doesn't** meet appear only in the skills list | `clear_fit`, `near_miss` |
 | No JD keyword appears outside the skills list | `keyword_stuffer`, `filler`, `career_changer` |
 | No JD keyword appears anywhere, including skills | `hidden_gem` |

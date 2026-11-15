@@ -45,7 +45,7 @@ keyword-stuffer rejection. If we don't beat them, we report that.
 | Tool server | **FastMCP** (v2.x), Streamable HTTP transport | Mounted inside the FastAPI app at `/mcp` |
 | Agent ↔ tools | `fastmcp.Client` | Agents get data **only** through MCP tools |
 | LLM | Provider SDK behind `llm.py` wrapper; model set by `LLM_MODEL` env | Structured output parsed into Pydantic models; cheapest model that passes our evals |
-| Embeddings | `EMBEDDING_MODEL` env (default: hosted small embedding model) | No local torch, so hosting stays light |
+| Embeddings | `BAAI/bge-small-en-v1.5` run locally through fastembed (ONNX); set by `EMBEDDING_PROVIDER` and `EMBEDDING_MODEL` | No API key and no torch, so hosting stays light. The Docker build downloads the model. |
 | Vector store | ChromaDB (persistent, on-disk) | Rebuilt from `data/generated/` by an ingest script |
 | Keyword baseline | `rank_bm25` | |
 | Schemas | Pydantic v2 | Shared by API, MCP tools, and agents |
@@ -522,9 +522,10 @@ agentic-ats/
 `MCP_API_KEY`, `APP_API_KEY`, `API_BASE_URL` (used by the UI), `CHROMA_DIR`, `RUNS_DIR`, and the caps in §4.5.
 *(proposed)* Also `LLM_PRICE_IN_PER_MTOK`, `LLM_PRICE_OUT_PER_MTOK` (§4.5) and `DATASET_URL` (§13). The data
 generator uses its own `DATAGEN_LLM_PROVIDER`, `DATAGEN_LLM_MODEL`, and `DATAGEN_LLM_API_KEY`.
-*(proposed)* Embeddings need `EMBEDDING_PROVIDER` (`openai` for any OpenAI-compatible endpoint, or
-`hash` for an offline word-matching embedder used in tests and CI), `EMBEDDING_API_KEY`, and optionally
-`EMBEDDING_BASE_URL`. `DATA_DIR` (default `data/generated`) says where the generated dataset is.
+Embeddings use `EMBEDDING_PROVIDER` (`fastembed` for the project's local model, or `hash` for an
+offline word-matching embedder used in tests and CI), `EMBEDDING_MODEL`, and optionally
+`EMBEDDING_CACHE_DIR` for where the model is stored. `DATA_DIR` (default `data/generated`) says
+where the generated dataset is.
 
 ---
 
@@ -628,7 +629,7 @@ the shortlist, interview questions for each gap, a live trace panel (SSE), and a
 | # | Decision | Default until decided |
 |---|---|---|
 | 1 | LLM provider and model | Cheapest model that passes the eval, set by `LLM_MODEL` |
-| 2 | Embedding model | A hosted small embedding model, so the container needs no torch |
+| 2 | Embedding model | **Decided (Nov 14):** `BAAI/bge-small-en-v1.5` through fastembed, local, no torch and no API key |
 | 3 | API host (Render, Railway, or Fly) | Render |
 | 4 | Agent framework vs. plain Python | Plain Python + `fastmcp.Client`, which keeps loops and caps explicit |
 | 5 | Public demo: live runs or pre-computed only | Pre-computed by default, live runs behind a passcode |
