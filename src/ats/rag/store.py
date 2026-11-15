@@ -6,6 +6,9 @@ Two collections:
   whole-resume baselines.
 
 Scores are cosine similarity clamped to [0, 1] (``1 - cosine distance``).
+
+Each collection records the embedder's name and vector size. A store opened with a different
+embedder raises ``EmbedderMismatch`` instead of returning scores that mean nothing.
 """
 
 from __future__ import annotations
@@ -86,6 +89,20 @@ class ResumeStore:
             )
         return col
 
+    def _query_vector(self, col: Any, vector: list[float]) -> list[float]:
+        dim = (col.metadata or {}).get("dim")
+        if dim is not None and len(vector) != dim:
+            raise EmbedderMismatch(
+                f"the index holds {dim}-dimensional vectors but {self.embedder.name!r} produced "
+                f"{len(vector)}. Re-run scripts/ingest.py."
+            )
+        return vector
+
+    def manifest(self) -> dict[str, Any]:
+        """What the index says about itself: embedder name and vector size."""
+        meta = self._collection(CHUNKS_COLLECTION).metadata or {}
+        return {"embedder": meta.get("embedder"), "dim": meta.get("dim")}
+
     # --- write side ---------------------------------------------------------------------------
 
     def rebuild(self, chunks: list[Chunk], job_ids: dict[str, list[str]]) -> None:
@@ -102,12 +119,15 @@ class ResumeStore:
 
         doc_ids = sorted(by_candidate)
         doc_texts = ["\n".join(c.text for c in by_candidate[cid]) for cid in doc_ids]
-        chunk_vectors = self.embedder.embed([c.text for c in chunks])
-        doc_vectors = self.embedder.embed(doc_texts)
+        chunk_vectors = self.embedder.embed_documents([c.text for c in chunks])
+        doc_vectors = self.embedder.embed_documents(doc_texts)
+        dims = {len(v) for v in (*chunk_vectors, *doc_vectors)}
+        if len(dims) != 1:
+            raise StoreError(f"embedder returned vectors of different sizes: {sorted(dims)}")
 
         order = {c.chunk_id: i for cid in doc_ids for i, c in enumerate(by_candidate[cid])}
         client = self._open(create=True)
-        meta = {"hnsw:space": "cosine", "embedder": self.embedder.name}
+        meta = {"hnsw:space": "cosine", "embedder": self.embedder.name, "dim": dims.pop()}
         for name in (CHUNKS_COLLECTION, DOCS_COLLECTION):
             try:
                 client.delete_collection(name)
@@ -170,7 +190,7 @@ class ResumeStore:
         if section is not None:
             conditions.append({"section": section})
         res = col.query(
-            query_embeddings=self.embedder.embed([query]),
+            query_embeddings=[self._query_vector(col, self.embedder.embed_query(query))],
             n_results=k,
             where=_and(conditions),
             include=["documents", "metadatas", "distances"],
@@ -233,13 +253,18 @@ class ResumeStore:
         return dict(sorted(zip(res["ids"], res["documents"], strict=True)))
 
     def rank_by_embedding(self, text: str, job_id: str) -> list[tuple[str, float]]:
-        """Every candidate in a job's pool, ranked by whole-resume similarity to ``text``."""
+        """Every candidate in a job's pool, ranked by whole-resume similarity to ``text``.
+
+        ``text`` is embedded as a document, not as a query: this compares one long text (the job
+        description) with others (whole resumes), which is not the short-query search that query
+        instructions are meant for.
+        """
         col = self._collection(DOCS_COLLECTION)
         total = col.count()
         if total == 0:
             return []
         res = col.query(
-            query_embeddings=self.embedder.embed([text]),
+            query_embeddings=[self._query_vector(col, self.embedder.embed_documents([text])[0])],
             n_results=total,
             where={"job_ids": {"$contains": job_id}},
             include=["distances"],

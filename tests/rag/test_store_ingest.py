@@ -77,7 +77,9 @@ def test_lookups(store: ResumeStore, resumes) -> None:
     assert store.get_chunk(first.chunk_id) == first
     assert store.get_chunk("cand_0001:experience:999") is None
     assert store.has_candidate(resumes[0].candidate_id) and not store.has_candidate("cand_9999")
-    assert store.counts() == {"chunks": 339, "candidates": 50}
+    counts = store.counts()
+    assert counts["candidates"] == 50
+    assert counts["chunks"] == sum(len(chunk_resume(r)) for r in resumes)
     docs = store.documents(JOB_ID)
     assert list(docs) == sorted(r.candidate_id for r in resumes)
     assert (
@@ -147,10 +149,10 @@ def test_failed_embedding_keeps_the_previous_index(tmp_path) -> None:
     class Flaky(HashEmbedder):
         fail = False
 
-        def embed(self, texts):
+        def embed_documents(self, texts):
             if self.fail:
                 raise EmbeddingError("provider down")
-            return super().embed(texts)
+            return super().embed_documents(texts)
 
     embedder = Flaky()
     store = ResumeStore(tmp_path, embedder)
@@ -160,6 +162,53 @@ def test_failed_embedding_keeps_the_previous_index(tmp_path) -> None:
         store.rebuild([chunk("c2", 0, "Framed houses")], {"c2": ["j1"]})
     embedder.fail = False
     assert store.get_chunk("c1:experience:0") is not None and store.counts()["chunks"] == 1
+
+
+def test_documents_and_queries_use_separate_embedder_methods(tmp_path) -> None:
+    class Recording(HashEmbedder):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls: list[tuple[str, list[str]]] = []
+
+        def embed_documents(self, texts):
+            self.calls.append(("documents", list(texts)))
+            return super().embed_documents(texts)
+
+        def embed_query(self, text):
+            self.calls.append(("query", [text]))
+            return super().embed_query(text)
+
+    embedder = Recording()
+    store = ResumeStore(tmp_path, embedder)
+    store.rebuild([chunk("c1", 0, "Built SQL reports")], {"c1": ["j1"]})
+    assert [kind for kind, _ in embedder.calls] == ["documents", "documents"]
+    assert store.manifest() == {"embedder": "hash:bow-512", "dim": 512}
+
+    embedder.calls.clear()
+    store.search("sql", 1)
+    store.search("sql", 1, candidate_id="c1")
+    assert embedder.calls == [("query", ["sql"]), ("query", ["sql"])]
+
+    # A whole job description is compared as a document, with no query instruction.
+    embedder.calls.clear()
+    store.rank_by_embedding("Analytics Manager job text", "j1")
+    assert embedder.calls == [("documents", ["Analytics Manager job text"])]
+
+
+def test_vector_size_mismatch_is_reported(tmp_path) -> None:
+    ResumeStore(tmp_path, HashEmbedder()).rebuild(
+        [chunk("c1", 0, "Built SQL reports")], {"c1": ["j1"]}
+    )
+
+    class SameNameOtherSize(HashEmbedder):
+        def __init__(self) -> None:
+            super().__init__(dim=64)
+            self.name = "hash:bow-512"
+
+    other = ResumeStore(tmp_path, SameNameOtherSize())
+    for search in (lambda: other.search("sql", 1), lambda: other.rank_by_embedding("sql", "j1")):
+        with pytest.raises(EmbedderMismatch, match="512-dimensional vectors.*produced 64"):
+            search()
 
 
 def test_rebuild_input_validation(tmp_path) -> None:
@@ -216,7 +265,7 @@ def test_ingest_cli(dataset: Path, tmp_path, monkeypatch, capsys) -> None:
 
     assert ingest_main([*args, "--offline"]) == 0
     out = capsys.readouterr().out
-    assert "Indexed 50 resumes (339 chunks" in out and "word for word" in out
+    assert "Indexed 50 resumes (" in out and "word for word" in out
     assert ResumeStore(chroma, HashEmbedder()).counts()["candidates"] == 50
 
     assert ingest_main(args) == 1

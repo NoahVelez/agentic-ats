@@ -31,11 +31,13 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr | None = None
     llm_model: str = ""
 
-    # Embeddings: "openai" (any OpenAI-compatible endpoint) or "hash" (offline, lexical).
+    # Embeddings: "fastembed" (local model), "hash" (offline, lexical) or "openai" (compatible API).
     embedding_provider: str = ""
     embedding_model: str = ""
     embedding_api_key: SecretStr | None = None
     embedding_base_url: str = "https://api.openai.com/v1"
+    # Where fastembed keeps downloaded models. Unset: fastembed's own default (a temp folder).
+    embedding_cache_dir: Path | None = None
 
     # Service
     mcp_url: str = "http://localhost:8000/mcp/"

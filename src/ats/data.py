@@ -23,8 +23,8 @@ def load_resumes(data_dir: Path) -> list[Resume]:
 
 
 def load_answer_key(data_dir: Path) -> AnswerKey | None:
-    """The answer key, or None if absent. Only ingest's self-check and the eval may call this;
-    nothing reachable from an MCP tool does."""
+    """The answer key, or None if absent. Only ingest's self-check, calibration, and the eval may
+    call this; nothing reachable from an MCP tool does."""
     path = Path(data_dir) / "answer_key.json"
     if not path.is_file():
         return None
