@@ -1,3 +1,4 @@
+
 """FastMCP server ``agentic-ats``: the only data access path for agents (SPEC §5).
 
 Guarantees enforced here rather than left to each tool (SPEC §5.3):
@@ -47,6 +48,7 @@ from ats.rag.embeddings import EmbeddingConfigError, EmbeddingError, embedder_fr
 from ats.rag.quotes import check_quote
 from ats.rag.redaction import redact_text, scrub
 from ats.rag.store import ResumeStore, StoreError
+from ats.run_store import FileRunStore
 from ats.tracing import append_event, read_trace, valid_run_id
 
 log = logging.getLogger(__name__)
@@ -61,14 +63,16 @@ READ_ONLY = {"readOnlyHint": True}
 
 
 class Runtime:
-    """Settings plus services that are built on first use (the store needs a configured
-    embedder, and importing this module must not require one)."""
+    """Settings plus services that are built on first use."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._lock = threading.Lock()
         self._store: ResumeStore | None = None
         self._jobs: dict[str, JobDescription] = {}
+
+        # File-based persistence for screening run state.
+        self.run_store = FileRunStore(settings.runs_dir)
 
     @property
     def store(self) -> ResumeStore:
@@ -120,7 +124,7 @@ def load_prompt(name: str) -> str:
 
 @contextmanager
 def _tool_errors():
-    """Turn expected failures into messages the caller can act on. Anything else is masked."""
+    """Turn expected failures into messages the caller can act on."""
     try:
         yield
     except (StoreError, EmbeddingConfigError) as exc:
@@ -185,7 +189,6 @@ class GuardMiddleware(Middleware):
             result, findings = scrub_result(result)
             if findings:
                 redactions = len(findings)
-                # Locations and kinds only; the values themselves are never logged.
                 log.warning("response filter changed the output of %s: %s", name, findings)
             return result
         except Exception as exc:
@@ -230,7 +233,6 @@ class GuardMiddleware(Middleware):
             if not written:
                 log.info("no run folder for %s; tool call not traced", run_id)
         except Exception:
-            # Tracing must never break a tool call.
             log.exception("could not write the trace event for %s", name)
 
 
@@ -246,8 +248,7 @@ def create_mcp(runtime: Runtime) -> FastMCP:
     )
 
     async def with_store(fn):
-        """Run ``fn(store)`` off the event loop. Getting the store is inside the error mapping
-        too, so a missing embedder setting reaches the caller as a clear message."""
+        """Run ``fn(store)`` off the event loop."""
         with _tool_errors():
             return await anyio.to_thread.run_sync(partial(fn, runtime.store))
 
@@ -288,8 +289,7 @@ def create_mcp(runtime: Runtime) -> FastMCP:
         k: Annotated[int, Field(ge=1, le=100)] = 20,
         section: Section | None = None,
     ) -> list[SearchHit]:
-        """Vector search over all resume chunks. Scores are cosine similarity from 0 to 1.
-        Returns anonymized candidate ids and short snippets, never names."""
+        """Vector search over all resume chunks. Scores are cosine similarity from 0 to 1."""
         hits = await with_store(lambda s: s.search(query, k, section=section))
         return [
             SearchHit(
@@ -303,8 +303,7 @@ def create_mcp(runtime: Runtime) -> FastMCP:
 
     @mcp.tool(annotations=READ_ONLY)
     async def get_pool_stats(hits: list[SearchHit]) -> PoolStats:
-        """Summarize search hits: distinct candidates, a histogram of each candidate's best
-        score, and how many candidates have a strong hit (when STRONG_HIT is configured)."""
+        """Summarize search hits and strong-hit counts."""
         return pool_stats(hits, runtime.settings.strong_hit)
 
     # --- one candidate ------------------------------------------------------------------------
@@ -331,8 +330,7 @@ def create_mcp(runtime: Runtime) -> FastMCP:
 
     @mcp.tool(annotations=READ_ONLY)
     async def verify_quote(candidate_id: str, chunk_id: str, quote: str) -> QuoteCheck:
-        """Check, without an LLM, that a quote appears word for word in the given chunk and that
-        the chunk belongs to this candidate. Only whitespace and quote marks are normalized."""
+        """Check that a quote appears word for word in the given candidate's chunk."""
         chunk = await with_store(lambda s: s.get_chunk(chunk_id))
         return check_quote(chunk, candidate_id, quote)
 

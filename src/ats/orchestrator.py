@@ -210,3 +210,47 @@ async def prepare_screening(
     )
 
     return requirements_result, candidate_pool
+async def run_screening_pipeline(
+    job_id: str,
+    mcp_client: Client,
+    *,
+    recruiter_answers: dict[str, Any] | None = None,
+    llm_client: LLMClient | None = None,
+    settings: Settings | None = None,
+) -> (
+    ClarificationRequest
+    | tuple[
+        RequirementSet,
+        CandidatePool,
+        list[CandidateEvaluation],
+        list[ShortlistEntry],
+    ]
+):
+    """Run requirements, search, evaluation, scoring, and ranking."""
+
+    settings = settings or get_settings()
+
+    screening = await prepare_screening(
+        job_id,
+        mcp_client,
+        recruiter_answers=recruiter_answers,
+        llm_client=llm_client,
+        settings=settings,
+    )
+
+    if isinstance(screening, ClarificationRequest):
+        return screening
+
+    requirements, candidate_pool = screening
+
+    evaluations = await evaluate_candidates(
+        requirements,
+        candidate_pool,
+        mcp_client,
+        llm_client=llm_client,
+        settings=settings,
+    )
+
+    shortlist = rank_candidates(requirements, evaluations)
+
+    return requirements, candidate_pool, evaluations, shortlist

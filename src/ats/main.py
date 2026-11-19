@@ -48,7 +48,7 @@ def create_app(runtime: Runtime | None = None, server: FastMCP | None = None) ->
     server = server or mcp_server.mcp
     mcp_app = server.http_app(path="/")
     app = FastAPI(title="Agentic ATS", lifespan=mcp_app.lifespan)
-    app.include_router(create_router(runtime), prefix="/api")
+    app.include_router(create_router(runtime, server), prefix="/api")
     key = runtime.settings.mcp_api_key
     token = key.get_secret_value() if key else ""
     app.mount("/mcp", BearerAuth(mcp_app, token) if token else mcp_app)

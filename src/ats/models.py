@@ -265,3 +265,39 @@ class TraceEvent(BaseModel):
     tokens_out: int = 0
     cost_usd: float = 0
     latency_ms: int
+# --- Run lifecycle and persistence ------------------------------------------------------------
+
+RunMode = Literal["agentic", "keyword", "embedding"]
+
+RunStatus = Literal[
+    "queued",
+    "requirements",
+    "awaiting_clarification",
+    "searching",
+    "evaluating",
+    "verifying",
+    "awaiting_review",
+    "completed",
+    "failed",
+]
+
+
+class RunUsage(BaseModel):
+    tokens_in: int = 0
+    tokens_out: int = 0
+    cost_usd: float = 0.0
+
+
+class RunState(BaseModel):
+    run_id: str
+    job_id: str
+    mode: RunMode
+    status: RunStatus
+    stage: str
+    pending_questions: list[Question] = Field(default_factory=list)
+    recruiter_answers: dict[str, str] = Field(default_factory=dict)
+    shortlist: list[ShortlistEntry] = Field(default_factory=list)
+    usage: RunUsage = Field(default_factory=RunUsage)
+    error: str | None = None
+    created_at: datetime
+    updated_at: datetime
