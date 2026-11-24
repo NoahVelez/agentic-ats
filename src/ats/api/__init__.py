@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hmac
+import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
@@ -138,6 +139,7 @@ def create_router(runtime: Runtime, server: Any) -> APIRouter:
                 state.pending_questions = []
 
         except Exception:
+            logging.exception("Screening run %s failed", run_id)
             state.status = "failed"
             state.stage = "failed"
             state.error = (
