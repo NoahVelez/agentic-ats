@@ -95,12 +95,12 @@ def _parse_search_hits(raw_hits: Any) -> list[SearchHit]:
     if not isinstance(raw_hits, list):
         raise ValueError("search_resumes did not return a list of hits.")
 
-    return [SearchHit.model_validate(hit) for hit in raw_hits]
+    return [SearchHit.model_validate(hit, from_attributes=True) for hit in raw_hits]
 
 
 def _parse_pool_stats(raw_stats: Any) -> PoolStats:
     """Validate pool statistics against the shared PoolStats model."""
-    return PoolStats.model_validate(raw_stats)
+    return PoolStats.model_validate(raw_stats, from_attributes=True)
 
 
 async def run_search_agent(

@@ -209,3 +209,28 @@ async def test_search_rejects_empty_requirements(settings):
             mcp_client,
             settings=settings,
         )
+
+
+async def test_search_accepts_fastmcp_dataclass_results(requirements, settings):
+    """FastMCP returns hits and pool stats as generated dataclass objects."""
+    from dataclasses import make_dataclass
+
+    Hit = make_dataclass(
+        "Root",
+        [("candidate_id", str), ("chunk_id", str), ("score", float), ("snippet", str)],
+    )
+    inner = FakeMCPClient()
+
+    class DataclassMCPClient:
+        async def call_tool(self, tool_name, arguments):
+            result = await inner.call_tool(tool_name, arguments)
+            if tool_name == "search_resumes":
+                result.data = [Hit(**hit) for hit in result.data]
+            if tool_name == "get_pool_stats":
+                Stats = make_dataclass("Root", list(result.data))
+                result.data = Stats(**result.data)
+            return result
+
+    pool = await run_search_agent(requirements, DataclassMCPClient(), settings=settings)
+
+    assert pool.candidate_ids == ["C001", "C002"]

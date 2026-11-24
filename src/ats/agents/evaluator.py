@@ -11,8 +11,8 @@ from fastmcp import Client
 from pydantic import ValidationError
 
 from ats.config import Settings, get_settings
-from ats.llm import LLMClient, create_llm_client
-from ats.models import CandidateEvaluation, RequirementSet
+from ats.llm import LLMClient, create_llm_client, extract_json_text
+from ats.models import CandidateEvaluation, Chunk, RequirementSet
 
 
 def load_system_prompt() -> str:
@@ -47,9 +47,13 @@ def parse_model_response(response: str) -> dict[str, Any]:
     try:
         parsed = json.loads(cleaned)
     except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"Evaluator returned invalid JSON: {exc}"
-        ) from exc
+        # Claude may add a sentence before or after the JSON object.
+        try:
+            parsed = json.loads(extract_json_text(response))
+        except json.JSONDecodeError:
+            raise ValueError(
+                f"Evaluator returned invalid JSON: {exc}"
+            ) from exc
 
     if not isinstance(parsed, dict):
         raise ValueError(
@@ -91,14 +95,17 @@ def _parse_chunks(raw_chunks: Any) -> list[dict[str, Any]]:
     chunks = []
 
     for chunk in raw_chunks:
-        if hasattr(chunk, "model_dump"):
-            chunk = chunk.model_dump()
-        elif not isinstance(chunk, dict):
+        # FastMCP returns tool output as generated dataclass objects
+        # (fastmcp...json_schema_type.Root), not dicts or Pydantic models,
+        # so validate by attribute as well as by key.
+        try:
+            validated = Chunk.model_validate(chunk, from_attributes=True)
+        except ValidationError as exc:
             raise ValueError(
                 "Invalid candidate chunk returned by MCP."
-            )
+            ) from exc
 
-        chunks.append(chunk)
+        chunks.append(validated.model_dump(mode="json"))
 
     return chunks
 

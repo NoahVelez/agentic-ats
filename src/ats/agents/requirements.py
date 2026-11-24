@@ -15,14 +15,13 @@ from fastmcp import Client
 from pydantic import ValidationError
 
 from ats.config import Settings, get_settings
-from ats.llm import LLMClient, create_llm_client
+from ats.llm import LLMClient, create_llm_client, extract_json_text
 from ats.models import (
     ClarificationRequest,
     JobDescription,
     Question,
     RequirementSet,
 )
-
 
 PROMPT_PATH = (
     Path(__file__).parent / "prompts" / "requirements_system.md"
@@ -57,9 +56,13 @@ def parse_model_response(response: str) -> dict[str, Any]:
     try:
         parsed = json.loads(cleaned)
     except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"Requirements Agent returned invalid JSON: {exc}"
-        ) from exc
+        # Claude may add a sentence before or after the JSON object.
+        try:
+            parsed = json.loads(extract_json_text(response))
+        except json.JSONDecodeError:
+            raise ValueError(
+                f"Requirements Agent returned invalid JSON: {exc}"
+            ) from exc
 
     if not isinstance(parsed, dict):
         raise ValueError(
@@ -153,12 +156,56 @@ def _get_job_from_mcp_result(result: Any) -> JobDescription:
             "The MCP get_job tool returned no job data."
         )
 
+    # FastMCP can return a Pydantic model in result.data.
+    # Convert wrapped model objects into plain data before validation.
+    if hasattr(data, "model_dump"):
+        data = data.model_dump()
+    elif hasattr(data, "root"):
+        data = data.root
+        if hasattr(data, "model_dump"):
+            data = data.model_dump()
+
     try:
-        return JobDescription.model_validate(data)
+        return JobDescription.model_validate(data, from_attributes=True)
     except ValidationError as exc:
         raise ValueError(
             "The MCP get_job tool returned invalid job data."
         ) from exc
+
+
+def _build_clarification_request(
+    questions_data: list[Any],
+    max_questions: int,
+) -> ClarificationRequest:
+    """Validate the model's questions and give them stable IDs Q1..Qn.
+
+    IDs are always renumbered so they are unique and match the keys the
+    recruiter answers with, whatever IDs the model chose.
+    """
+    questions = []
+
+    for index, question_data in enumerate(
+        questions_data[:max_questions],
+        start=1,
+    ):
+        if not isinstance(question_data, dict):
+            raise ValueError("Each clarification question must be an object.")
+
+        try:
+            question = Question.model_validate(
+                {**question_data, "id": f"Q{index}"}
+            )
+        except ValidationError as exc:
+            raise ValueError(
+                f"Invalid clarification question: {exc}"
+            ) from exc
+
+        if not question.text.strip():
+            raise ValueError("Clarification questions cannot be empty.")
+
+        questions.append(question)
+
+    return ClarificationRequest(questions=questions)
 
 
 async def run_requirements_agent(
@@ -197,6 +244,9 @@ async def run_requirements_agent(
             "\n\nRecruiter clarification answers:\n"
             + json.dumps(recruiter_answers, indent=2)
             + "\n\nUse these answers when finalizing the requirements."
+            + " The recruiter has already answered; do not ask further"
+            " questions. Return the requirements object, recording any"
+            " remaining uncertainty in `assumption`."
         )
 
     # Call the shared asynchronous LLM client.
@@ -207,32 +257,27 @@ async def run_requirements_agent(
 
     parsed = parse_model_response(response)
 
-    # Return clarification questions when the LLM requests them.
-    if "questions" in parsed:
-        questions_data = parsed.get("questions")
+    questions_data = parsed.get("questions")
 
-        if not isinstance(questions_data, list):
-            raise ValueError(
-                "Clarification questions must be provided as a list."
+    if questions_data is not None and not isinstance(questions_data, list):
+        raise ValueError(
+            "Clarification questions must be provided as a list."
+        )
+
+    # An empty list (e.g. {"requirements": [...], "questions": []}) is not a
+    # clarification request; it would leave the run waiting on nothing.
+    if questions_data:
+        if recruiter_answers:
+            if "requirements" not in parsed:
+                raise ValueError(
+                    "Requirements Agent asked for clarification again "
+                    "after the recruiter had answered."
+                )
+        else:
+            return _build_clarification_request(
+                questions_data,
+                settings.max_clarify_questions,
             )
-
-        questions_data = questions_data[
-            : settings.max_clarify_questions
-        ]
-
-        questions = []
-
-        for index, question_data in enumerate(questions_data, start=1):
-            question_data = dict(question_data)
-
-            if not question_data.get("id"):
-                question_data["id"] = f"Q{index}"
-
-            questions.append(
-                Question.model_validate(question_data)
-            )
-
-        return ClarificationRequest(questions=questions)
 
     # Validate and return the final requirements.
     parsed["job_id"] = job.job_id

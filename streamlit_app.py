@@ -5,7 +5,6 @@ import os
 import httpx
 import streamlit as st
 
-
 API_BASE_URL = os.getenv(
     "API_BASE_URL",
     "http://localhost:8000",
@@ -42,7 +41,15 @@ def api_request(method, endpoint, **kwargs):
         return response.json()
 
     except httpx.HTTPStatusError as exc:
-        detail = exc.response.text
+        try:
+            body = exc.response.json()
+        except ValueError:
+            body = None
+        detail = (
+            body.get("detail", exc.response.text)
+            if isinstance(body, dict)
+            else exc.response.text
+        )
         st.error(
             f"API error ({exc.response.status_code}): {detail}"
         )
@@ -154,9 +161,15 @@ def show_run(run):
                         )
 
                         if result:
-                            st.success(
-                                "Answers submitted. Screening has been queued."
+                            # Replace the cached awaiting_clarification run so
+                            # the form is not shown again after the rerun.
+                            refreshed = api_request(
+                                "GET", f"/api/runs/{run['run_id']}"
                             )
+                            if refreshed:
+                                st.session_state["current_run"] = refreshed
+                            else:
+                                st.session_state.pop("current_run", None)
                             st.rerun()
 
     elif status in {

@@ -1,6 +1,7 @@
 
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 
 from ats.models import (
     CandidateEvaluation,

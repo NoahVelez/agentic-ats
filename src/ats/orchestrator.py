@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +19,6 @@ from ats.models import (
     CandidateEvaluation,
     CandidatePool,
     ClarificationRequest,
-    Decision,
     RequirementSet,
     ShortlistEntry,
     TraceEvent,
@@ -63,7 +62,7 @@ def _write_trace(
 ) -> None:
     """Write one event using the project's existing trace format."""
     trace_event = TraceEvent(
-        ts=datetime.now(timezone.utc),
+        ts=datetime.now(UTC),
         run_id=run_id,
         stage=stage,
         agent=agent,

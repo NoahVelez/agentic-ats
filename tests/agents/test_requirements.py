@@ -3,9 +3,10 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from pydantic import SecretStr
+from pydantic import SecretStr, create_model
 
 from ats.agents.requirements import (
+    _get_job_from_mcp_result,
     build_user_prompt,
     load_system_prompt,
     parse_model_response,
@@ -13,7 +14,7 @@ from ats.agents.requirements import (
 )
 from ats.config import Settings
 from ats.llm import OpenAICompatibleClient, create_llm_client
-from ats.models import JobDescription, RequirementSet, ClarificationRequest
+from ats.models import ClarificationRequest, JobDescription, RequirementSet
 
 
 class FakeLLMClient:
@@ -271,6 +272,31 @@ def test_create_openai_client(monkeypatch):
     assert captured["base_url"] is None
 
 
+
+def test_create_claude_client(monkeypatch):
+    captured = {}
+
+    class FakeAsyncAnthropic:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("ats.llm.AsyncAnthropic", FakeAsyncAnthropic)
+
+    settings = Settings(
+        llm_provider="claude",
+        llm_model="claude-sonnet-4-5",
+        llm_api_key=SecretStr("test-key"),
+    )
+
+    client = create_llm_client(settings)
+
+    from ats.llm import AnthropicClient
+
+    assert isinstance(client, AnthropicClient)
+    assert client.model == "claude-sonnet-4-5"
+    assert captured["api_key"] == "test-key"
+
+
 def test_create_llm_client_rejects_missing_api_key():
     settings = Settings(
         llm_provider="groq",
@@ -290,3 +316,277 @@ def test_create_llm_client_rejects_unsupported_provider():
 
     with pytest.raises(ValueError, match="Unsupported LLM provider"):
         create_llm_client(settings)
+
+
+def test_get_job_from_mcp_result_unwraps_pydantic_root(job):
+    Root = create_model(
+        "Root",
+        job_id=(str, ...),
+        title=(str, ...),
+        text=(str, ...),
+    )
+    root = Root(
+        job_id=job.job_id,
+        title=job.title,
+        text=job.text,
+    )
+    result = SimpleNamespace(
+        is_error=False,
+        data=root,
+        structured_content=None,
+    )
+
+    parsed = _get_job_from_mcp_result(result)
+
+    assert parsed == job
+
+
+# CLAUDE CLIENT
+
+
+class FakeMessages:
+    def __init__(self, response):
+        self.response = response
+        self.calls = []
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.response
+
+
+def make_claude_client(monkeypatch, response):
+    messages = FakeMessages(response)
+
+    class FakeAsyncAnthropic:
+        def __init__(self, **kwargs):
+            self.messages = messages
+
+    monkeypatch.setattr("ats.llm.AsyncAnthropic", FakeAsyncAnthropic)
+
+    from ats.llm import AnthropicClient
+
+    return AnthropicClient(model="claude-haiku-5-5", api_key="test-key"), messages
+
+
+def claude_response(*blocks, stop_reason="end_turn", tokens_in=10, tokens_out=5):
+    return SimpleNamespace(
+        content=list(blocks),
+        stop_reason=stop_reason,
+        usage=SimpleNamespace(input_tokens=tokens_in, output_tokens=tokens_out),
+    )
+
+
+async def test_claude_complete_sends_supported_arguments_and_returns_text(
+    monkeypatch,
+):
+    response = claude_response(
+        SimpleNamespace(type="thinking", thinking=""),
+        SimpleNamespace(type="text", text='{"ok": true}'),
+    )
+    client, messages = make_claude_client(monkeypatch, response)
+
+    text = await client.complete("system prompt", "user prompt")
+
+    assert text == '{"ok": true}'
+    call = messages.calls[0]
+    assert call["model"] == "claude-haiku-5-5"
+    assert call["system"] == "system prompt"
+    assert call["messages"] == [{"role": "user", "content": "user prompt"}]
+    # Thinking tokens count toward max_tokens, so leave headroom.
+    assert call["max_tokens"] >= 16000
+    # The Anthropic API rejects sampling parameters on current models.
+    assert "temperature" not in call
+    assert "top_p" not in call
+
+
+async def test_claude_complete_accumulates_token_usage(monkeypatch):
+    response = claude_response(
+        SimpleNamespace(type="text", text="{}"),
+        tokens_in=120,
+        tokens_out=30,
+    )
+    client, _ = make_claude_client(monkeypatch, response)
+
+    await client.complete("s", "u")
+    await client.complete("s", "u")
+
+    assert client.tokens_in == 240
+    assert client.tokens_out == 60
+
+
+async def test_claude_complete_rejects_truncated_response(monkeypatch):
+    response = claude_response(
+        SimpleNamespace(type="text", text='{"requirements": ['),
+        stop_reason="max_tokens",
+    )
+    client, _ = make_claude_client(monkeypatch, response)
+
+    with pytest.raises(ValueError, match="truncated"):
+        await client.complete("s", "u")
+
+    # Tokens were still spent and must still be counted.
+    assert client.tokens_out == 5
+
+
+async def test_claude_complete_rejects_refusal(monkeypatch):
+    response = claude_response(stop_reason="refusal")
+    client, _ = make_claude_client(monkeypatch, response)
+
+    with pytest.raises(ValueError, match="declined"):
+        await client.complete("s", "u")
+
+
+# CLAUDE OUTPUT AND FASTMCP RESULT SHAPES
+
+
+def test_extract_json_text_handles_claude_wrappers():
+    from ats.llm import extract_json_text
+
+    assert extract_json_text('{"a": 1}') == '{"a": 1}'
+    assert extract_json_text('Here you go:\n```json\n{"a": 1}\n```') == '{"a": 1}'
+    assert extract_json_text("no json here") == "no json here"
+
+
+def test_parse_model_response_accepts_prose_before_fenced_json():
+    response = (
+        "Here are the structured requirements:\n\n"
+        '```json\n{"job_id": "job_001", "requirements": []}\n```'
+    )
+
+    assert parse_model_response(response)["job_id"] == "job_001"
+
+
+def test_parse_model_response_still_rejects_json_array():
+    with pytest.raises(ValueError, match="JSON object"):
+        parse_model_response('[{"job_id": "job_001"}]')
+
+
+def test_get_job_from_mcp_result_accepts_fastmcp_dataclass_root(job):
+    """FastMCP builds result.data as a generated *dataclass* named Root."""
+    from dataclasses import make_dataclass
+
+    Root = make_dataclass("Root", [("job_id", str), ("title", str), ("text", str)])
+    result = SimpleNamespace(
+        is_error=False,
+        data=Root(job_id=job.job_id, title=job.title, text=job.text),
+        structured_content=None,
+    )
+
+    assert _get_job_from_mcp_result(result) == job
+
+
+# CLARIFICATION WORKFLOW
+
+VALID_REQUIREMENTS = {
+    "requirements": [
+        {
+            "id": "R1",
+            "text": "SQL experience",
+            "kind": "must",
+            "weight": 3,
+            "equivalents": [],
+            "assumption": None,
+        }
+    ]
+}
+
+
+async def test_clarification_questions_get_stable_sequential_ids(
+    mcp_client, settings
+):
+    response = {
+        "questions": [
+            {"id": "q-sql", "text": "How many years of SQL?"},
+            {"id": "q-sql", "text": "Is Python required?", "about_requirement": "R2"},
+            {"text": "Is Power BI mandatory?"},
+            {"id": "Q9", "text": "Over the limit and should be dropped."},
+        ]
+    }
+
+    result = await run_requirements_agent(
+        "JOB-001",
+        mcp_client,
+        llm_client=FakeLLMClient(json.dumps(response)),
+        settings=settings,
+    )
+
+    assert isinstance(result, ClarificationRequest)
+    assert [q.id for q in result.questions] == ["Q1", "Q2", "Q3"]
+    assert result.questions[1].about_requirement == "R2"
+
+
+async def test_empty_questions_list_does_not_trigger_clarification(
+    mcp_client, settings
+):
+    """Regression: {"requirements": [...], "questions": []} used to become a
+    ClarificationRequest with zero questions, stranding the run."""
+    response = {**VALID_REQUIREMENTS, "questions": []}
+
+    result = await run_requirements_agent(
+        "JOB-001",
+        mcp_client,
+        llm_client=FakeLLMClient(json.dumps(response)),
+        settings=settings,
+    )
+
+    assert isinstance(result, RequirementSet)
+    assert result.requirements[0].id == "R1"
+
+
+async def test_complete_requirements_do_not_trigger_clarification(
+    mcp_client, settings
+):
+    result = await run_requirements_agent(
+        "JOB-001",
+        mcp_client,
+        llm_client=FakeLLMClient(json.dumps(VALID_REQUIREMENTS)),
+        settings=settings,
+    )
+
+    assert isinstance(result, RequirementSet)
+
+
+async def test_recruiter_answers_are_sent_and_requirements_returned(
+    mcp_client, settings
+):
+    llm = FakeLLMClient(json.dumps(VALID_REQUIREMENTS))
+
+    result = await run_requirements_agent(
+        "JOB-001",
+        mcp_client,
+        recruiter_answers={"Q1": "At least 3 years"},
+        llm_client=llm,
+        settings=settings,
+    )
+
+    assert isinstance(result, RequirementSet)
+    assert "At least 3 years" in llm.last_user_prompt
+    assert "do not ask further questions" in llm.last_user_prompt
+
+
+async def test_repeat_clarification_after_answers_is_rejected(
+    mcp_client, settings
+):
+    response = {"questions": [{"id": "Q1", "text": "Asked again?"}]}
+
+    with pytest.raises(ValueError, match="clarification again"):
+        await run_requirements_agent(
+            "JOB-001",
+            mcp_client,
+            recruiter_answers={"Q1": "At least 3 years"},
+            llm_client=FakeLLMClient(json.dumps(response)),
+            settings=settings,
+        )
+
+
+async def test_invalid_clarification_questions_are_rejected(
+    mcp_client, settings
+):
+    for questions in ("not a list", [{"id": "Q1"}], [{"text": "   "}], ["bare"]):
+        with pytest.raises(ValueError):
+            await run_requirements_agent(
+                "JOB-001",
+                mcp_client,
+                llm_client=FakeLLMClient(json.dumps({"questions": questions})),
+                settings=settings,
+            )

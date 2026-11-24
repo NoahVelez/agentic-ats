@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import hmac
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
@@ -33,6 +33,18 @@ class CreateRunRequest(BaseModel):
 
 class ClarificationAnswersRequest(BaseModel):
     answers: dict[str, str]
+
+
+def _record_usage(state: RunState, llm_client: Any) -> None:
+    """Add the LLM client's token counts, when it tracks them, to the run."""
+    tokens_in = getattr(llm_client, "tokens_in", None)
+    tokens_out = getattr(llm_client, "tokens_out", None)
+
+    if isinstance(tokens_in, int):
+        state.usage.tokens_in += tokens_in
+
+    if isinstance(tokens_out, int):
+        state.usage.tokens_out += tokens_out
 
 
 def create_router(runtime: Runtime, server: Any) -> APIRouter:
@@ -104,12 +116,14 @@ def create_router(runtime: Runtime, server: Any) -> APIRouter:
 
         state.status = "requirements"
         state.stage = "requirements"
-        state.updated_at = datetime.now(timezone.utc)
+        state.updated_at = datetime.now(UTC)
 
         if recruiter_answers:
             state.recruiter_answers.update(recruiter_answers)
 
         runtime.run_store.save(state)
+
+        llm_client = None
 
         try:
             llm_client = create_llm_client(runtime.settings)
@@ -123,7 +137,7 @@ def create_router(runtime: Runtime, server: Any) -> APIRouter:
                     settings=runtime.settings,
                 )
 
-            state.updated_at = datetime.now(timezone.utc)
+            state.updated_at = datetime.now(UTC)
 
             if isinstance(result, ClarificationRequest):
                 state.status = "awaiting_clarification"
@@ -145,8 +159,9 @@ def create_router(runtime: Runtime, server: Any) -> APIRouter:
             state.error = (
                 "Screening run failed. Check the application logs."
             )
-            state.updated_at = datetime.now(timezone.utc)
+            state.updated_at = datetime.now(UTC)
 
+        _record_usage(state, llm_client)
         runtime.run_store.save(state)
 
     # --------------------------------------------------
@@ -175,7 +190,7 @@ def create_router(runtime: Runtime, server: Any) -> APIRouter:
                 detail="Job not found.",
             )
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         run_id = f"run_{uuid4().hex}"
 
         state = RunState(
@@ -266,7 +281,7 @@ def create_router(runtime: Runtime, server: Any) -> APIRouter:
         state.pending_questions = []
         state.status = "queued"
         state.stage = "queued"
-        state.updated_at = datetime.now(timezone.utc)
+        state.updated_at = datetime.now(UTC)
 
         runtime.run_store.save(state)
 

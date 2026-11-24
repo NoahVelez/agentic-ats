@@ -212,3 +212,49 @@ async def test_evaluator_rejects_met_claim_without_quote(requirements, chunks):
             mcp_client=mcp,
             llm_client=llm,
         )
+
+
+async def test_evaluator_accepts_fastmcp_dataclass_chunks(requirements, chunks):
+    """Regression: FastMCP returns generated dataclass ``Root`` objects,
+    which have attributes but no ``model_dump``. The Evaluator used to
+    reject them with "Invalid candidate chunk returned by MCP"."""
+    from dataclasses import make_dataclass
+
+    Root = make_dataclass(
+        "Root",
+        [("chunk_id", str), ("candidate_id", str), ("section", str), ("text", str)],
+    )
+    llm = FakeLLMClient(json.dumps(valid_evaluation()))
+    mcp = FakeMCPClient([Root(**chunk) for chunk in chunks])
+
+    result = await run_evaluator_agent(
+        requirements=requirements,
+        candidate_id="candidate_001",
+        mcp_client=mcp,
+        llm_client=llm,
+    )
+
+    assert result.candidate_id == "candidate_001"
+    assert "chunk_001" in llm.calls[0]["user"]
+
+
+async def test_evaluator_rejects_malformed_chunk(requirements):
+    llm = FakeLLMClient(json.dumps(valid_evaluation()))
+    mcp = FakeMCPClient([{"chunk_id": "chunk_001"}])
+
+    with pytest.raises(ValueError, match="Invalid candidate chunk"):
+        await run_evaluator_agent(
+            requirements=requirements,
+            candidate_id="candidate_001",
+            mcp_client=mcp,
+            llm_client=llm,
+        )
+
+
+def test_parse_model_response_accepts_prose_around_json():
+    response = (
+        "Evaluation complete.\n```json\n"
+        '{"candidate_id": "candidate_001", "claims": []}\n```\nDone.'
+    )
+
+    assert parse_model_response(response)["candidate_id"] == "candidate_001"
