@@ -28,6 +28,7 @@ def make_runtime(tmp_path, **overrides):
 
 # HEALTH ENDPOINT TESTS
 
+
 def test_health_endpoint(tmp_path):
     runtime = make_runtime(tmp_path)
     app = create_app(runtime)
@@ -51,6 +52,7 @@ def test_health_endpoint_does_not_require_api_key(tmp_path):
 
 
 # API AUTHENTICATION TESTS
+
 
 def test_protected_endpoint_rejects_missing_api_key(tmp_path):
     runtime = make_runtime(tmp_path, app_api_key="test-secret")
@@ -76,6 +78,7 @@ def test_protected_endpoint_rejects_incorrect_api_key(tmp_path):
 
 
 # CREATE RUN TEST
+
 
 def test_create_run_returns_202_and_saves_initial_state(
     tmp_path,
@@ -106,6 +109,7 @@ def test_create_run_returns_202_and_saves_initial_state(
 
 
 # JOB ENDPOINT TESTS
+
 
 def test_list_jobs_returns_job_summaries(tmp_path, dataset):
     runtime = make_runtime(tmp_path, data_dir=dataset)
@@ -160,6 +164,7 @@ def test_jobs_endpoint_requires_api_key(tmp_path, dataset):
 
 # CLARIFICATION TEST HELPER
 
+
 def create_clarification_run(runtime, status="awaiting_clarification"):
     now = datetime.now(UTC)
 
@@ -194,6 +199,7 @@ def create_clarification_run(runtime, status="awaiting_clarification"):
 
 # CLARIFICATION ENDPOINT TESTS
 
+
 def test_submit_clarifications_saves_answers_and_queues_run(
     tmp_path,
     dataset,
@@ -204,9 +210,7 @@ def test_submit_clarifications_saves_answers_and_queues_run(
     monkeypatch.setattr(
         BackgroundTasks,
         "add_task",
-        lambda self, func, *args, **kwargs: scheduled_tasks.append(
-            (func, args, kwargs)
-        ),
+        lambda self, func, *args, **kwargs: scheduled_tasks.append((func, args, kwargs)),
     )
 
     runtime = make_runtime(tmp_path, data_dir=dataset)
@@ -300,11 +304,13 @@ class FakeClaudeClient:
         self.tokens_in = 0
         self.tokens_out = 0
         self.calls = 0
+        self.cost_usd = 0.0
 
     async def complete(self, system, user):
         self.calls += 1
         self.tokens_in += 100
         self.tokens_out += 20
+        self.cost_usd += 0.001
 
         if "Requirements agent" in system:
             requirements = {
@@ -328,11 +334,7 @@ class FakeClaudeClient:
                 ]
             }
             # Claude often adds a sentence before a fenced JSON block.
-            return (
-                "Here are the requirements:\n\n```json\n"
-                + json.dumps(requirements)
-                + "\n```"
-            )
+            return "Here are the requirements:\n\n```json\n" + json.dumps(requirements) + "\n```"
 
         candidate_id = user.split("Candidate ID: ", 1)[1].splitlines()[0].strip()
 
@@ -366,9 +368,7 @@ def test_screening_run_completes_through_real_mcp_server(
     monkeypatch.setattr(
         BackgroundTasks,
         "add_task",
-        lambda self, func, *args, **kwargs: scheduled_tasks.append(
-            (func, args, kwargs)
-        ),
+        lambda self, func, *args, **kwargs: scheduled_tasks.append((func, args, kwargs)),
     )
 
     fake_llm = FakeClaudeClient()
@@ -393,16 +393,32 @@ def test_screening_run_completes_through_real_mcp_server(
 
     assert len(scheduled_tasks) == 1
     func, args, kwargs = scheduled_tasks[0]
+
+    saved_stages = []
+    original_save = runtime.run_store.save
+
+    def recording_save(state):
+        saved_stages.append(state.stage)
+        original_save(state)
+
+    monkeypatch.setattr(runtime.run_store, "save", recording_save)
     asyncio.run(func(*args, **kwargs))
 
     state = runtime.run_store.get(run_id)
 
     assert state.error is None
+    assert saved_stages == [
+        "requirements",
+        "searching",
+        "evaluating",
+        "awaiting_review",
+    ]
     assert state.status == "awaiting_review"
     assert 1 <= len(state.shortlist) <= 3
     assert state.shortlist[0].rank == 1
     assert state.usage.tokens_in == fake_llm.tokens_in > 0
     assert state.usage.tokens_out == fake_llm.tokens_out > 0
+    assert state.usage.cost_usd == fake_llm.cost_usd > 0
 
 
 # REQUEST VALIDATION AND ERROR HANDLING
@@ -419,10 +435,7 @@ def test_create_run_validates_request_body_and_mode(tmp_path, dataset, monkeypat
 
     assert client.post("/api/runs", json={}).status_code == 422
     assert client.post("/api/runs", content="not json").status_code == 422
-    assert (
-        client.post("/api/runs", json={"job_id": JOB_ID, "mode": "bogus"}).status_code
-        == 422
-    )
+    assert client.post("/api/runs", json={"job_id": JOB_ID, "mode": "bogus"}).status_code == 422
 
     for mode in ("keyword", "embedding"):
         response = client.post("/api/runs", json={"job_id": JOB_ID, "mode": mode})
@@ -456,10 +469,7 @@ def test_submit_clarifications_rejects_bad_runs_and_answers(tmp_path, dataset):
     url = f"/api/runs/{state.run_id}/clarifications"
     both = {"Q1": "3 years", "Q2": "No"}
 
-    assert (
-        client.post("/api/runs/-bad/clarifications", json={"answers": both}).status_code
-        == 400
-    )
+    assert client.post("/api/runs/-bad/clarifications", json={"answers": both}).status_code == 400
     assert (
         client.post(
             "/api/runs/run_" + "c" * 32 + "/clarifications", json={"answers": both}
@@ -468,10 +478,7 @@ def test_submit_clarifications_rejects_bad_runs_and_answers(tmp_path, dataset):
     )
     assert client.post(url, json={}).status_code == 422
     assert client.post(url, json={"answers": {}}).status_code == 422
-    assert (
-        client.post(url, json={"answers": {"Q1": "3 years", "Q2": "   "}}).status_code
-        == 422
-    )
+    assert client.post(url, json={"answers": {"Q1": "3 years", "Q2": "   "}}).status_code == 422
 
     response = client.post(url, json={"answers": {**both, "Q7": "extra"}})
     assert response.status_code == 422
@@ -518,9 +525,7 @@ def test_clarification_round_trip_resumes_screening(
     monkeypatch.setattr(
         BackgroundTasks,
         "add_task",
-        lambda self, func, *args, **kwargs: scheduled_tasks.append(
-            (func, args, kwargs)
-        ),
+        lambda self, func, *args, **kwargs: scheduled_tasks.append((func, args, kwargs)),
     )
     fake_llm = ClarifyingFakeClaudeClient()
     monkeypatch.setattr("ats.api.create_llm_client", lambda settings: fake_llm)

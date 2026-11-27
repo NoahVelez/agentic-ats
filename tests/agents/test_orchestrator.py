@@ -1,4 +1,3 @@
-
 from unittest.mock import AsyncMock
 
 import pytest
@@ -13,6 +12,7 @@ from ats.models import (
     RequirementSet,
 )
 from ats.orchestrator import (
+    prepare_screening,
     rank_candidates,
     run_screening_pipeline,
     score_candidate,
@@ -231,3 +231,53 @@ async def test_pipeline_returns_ranked_shortlist(monkeypatch):
     assert len(result[2]) == 1
     assert result[3][0].candidate_id == "candidate-001"
     assert result[3][0].score == 3.0
+
+
+async def test_pipeline_reports_search_and_evaluation_stages(monkeypatch):
+    requirements = make_requirements()
+    pool = CandidatePool(candidate_ids=["candidate-001"], queries=[])
+    stages = []
+
+    async def mock_requirements(*args, **kwargs):
+        stages.append("requirements-ran")
+        return requirements
+
+    async def mock_search(*args, **kwargs):
+        stages.append("search-ran")
+        return pool
+
+    async def mock_evaluate(*args, **kwargs):
+        stages.append("evaluate-ran")
+        return []
+
+    monkeypatch.setattr("ats.orchestrator.run_requirements_agent", mock_requirements)
+    monkeypatch.setattr("ats.orchestrator.run_search_agent", mock_search)
+    monkeypatch.setattr("ats.orchestrator.evaluate_candidates", mock_evaluate)
+
+    await run_screening_pipeline("job-001", AsyncMock(), on_stage=stages.append)
+
+    assert stages == [
+        "requirements-ran",
+        "searching",
+        "search-ran",
+        "evaluating",
+        "evaluate-ran",
+    ]
+
+
+async def test_clarification_pause_does_not_report_later_stages(monkeypatch):
+    clarification = ClarificationRequest(questions=[Question(id="Q1", text="Is SQL required?")])
+    stages = []
+
+    monkeypatch.setattr(
+        "ats.orchestrator.run_requirements_agent",
+        AsyncMock(return_value=clarification),
+    )
+    mock_search = AsyncMock()
+    monkeypatch.setattr("ats.orchestrator.run_search_agent", mock_search)
+
+    result = await prepare_screening("job-001", AsyncMock(), on_stage=stages.append)
+
+    assert result is clarification
+    assert stages == []
+    mock_search.assert_not_awaited()

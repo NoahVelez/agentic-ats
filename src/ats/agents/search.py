@@ -1,4 +1,3 @@
-
 """Adaptive Search Agent using the project's MCP retrieval tools."""
 
 from __future__ import annotations
@@ -23,12 +22,8 @@ MAX_SEARCH_QUERIES = 10
 
 def generate_search_queries(requirements: RequirementSet) -> list[str]:
     """Generate the initial query from must-have and nice-to-have requirements."""
-    must_have = [
-        item.text for item in requirements.requirements if item.kind == "must"
-    ]
-    nice_to_have = [
-        item.text for item in requirements.requirements if item.kind == "nice"
-    ]
+    must_have = [item.text for item in requirements.requirements if item.kind == "must"]
+    nice_to_have = [item.text for item in requirements.requirements if item.kind == "nice"]
 
     terms = must_have[:3] + nice_to_have[:2]
     return [" ".join(terms)] if terms else []
@@ -47,9 +42,7 @@ def broaden_search_queries(requirements: RequirementSet) -> list[str]:
 
 def narrow_search_queries(requirements: RequirementSet) -> list[str]:
     """Narrow search to must-have requirements."""
-    must_have = [
-        item.text for item in requirements.requirements if item.kind == "must"
-    ]
+    must_have = [item.text for item in requirements.requirements if item.kind == "must"]
 
     if len(must_have) >= 2:
         return [" ".join(must_have)]
@@ -158,7 +151,7 @@ async def run_search_agent(
                     candidate_ids.append(hit.candidate_id)
 
             if len(candidate_ids) >= settings.max_pool_size:
-                candidate_ids = candidate_ids[:settings.max_pool_size]
+                candidate_ids = candidate_ids[: settings.max_pool_size]
                 break
 
         search_history.append(
@@ -174,11 +167,7 @@ async def run_search_agent(
         else:
             stats_result = await mcp_client.call_tool(
                 "get_pool_stats",
-                {
-                    "hits": [
-                        hit.model_dump() for hit in all_hits.values()
-                    ]
-                },
+                {"hits": [hit.model_dump() for hit in all_hits.values()]},
             )
 
             stats = _parse_pool_stats(_extract_result(stats_result))
@@ -206,6 +195,6 @@ async def run_search_agent(
             break
 
     return CandidatePool(
-        candidate_ids=candidate_ids[:settings.max_pool_size],
+        candidate_ids=candidate_ids[: settings.max_pool_size],
         queries=search_history,
     )

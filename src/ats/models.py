@@ -265,6 +265,8 @@ class TraceEvent(BaseModel):
     tokens_out: int = 0
     cost_usd: float = 0
     latency_ms: int
+
+
 # --- Run lifecycle and persistence ------------------------------------------------------------
 
 RunMode = Literal["agentic", "keyword", "embedding"]

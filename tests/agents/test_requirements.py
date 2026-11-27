@@ -1,4 +1,3 @@
-
 import json
 from types import SimpleNamespace
 
@@ -48,10 +47,7 @@ def job():
     return JobDescription(
         job_id="JOB-001",
         title="Data Analyst",
-        text=(
-            "Required: SQL and Python experience. "
-            "Power BI experience is preferred."
-        ),
+        text=("Required: SQL and Python experience. Power BI experience is preferred."),
     )
 
 
@@ -137,15 +133,11 @@ async def test_requirements_agent_returns_requirement_set(mcp_client, settings):
     assert result.requirements[1].id == "R2"
     assert client.last_system_prompt
     assert "SQL" in client.last_user_prompt
-    assert mcp_client.calls == [
-        ("get_job", {"job_id": "JOB-001"})
-    ]
+    assert mcp_client.calls == [("get_job", {"job_id": "JOB-001"})]
 
 
 @pytest.mark.asyncio
-async def test_requirements_agent_returns_clarification_request(
-    mcp_client, settings
-):
+async def test_requirements_agent_returns_clarification_request(mcp_client, settings):
     response = {
         "questions": [
             {
@@ -171,9 +163,7 @@ async def test_requirements_agent_returns_clarification_request(
 
 
 @pytest.mark.asyncio
-async def test_requirements_agent_rejects_non_sequential_ids(
-    mcp_client, settings
-):
+async def test_requirements_agent_rejects_non_sequential_ids(mcp_client, settings):
     response = {
         "requirements": [
             {
@@ -199,9 +189,7 @@ async def test_requirements_agent_rejects_non_sequential_ids(
 
 
 @pytest.mark.asyncio
-async def test_requirements_agent_rejects_weight_above_three(
-    mcp_client, settings
-):
+async def test_requirements_agent_rejects_weight_above_three(mcp_client, settings):
     response = {
         "requirements": [
             {
@@ -270,7 +258,6 @@ def test_create_openai_client(monkeypatch):
     assert client.model == "gpt-4o-mini"
     assert captured["api_key"] == "test-key"
     assert captured["base_url"] is None
-
 
 
 def test_create_claude_client(monkeypatch):
@@ -412,6 +399,21 @@ async def test_claude_complete_accumulates_token_usage(monkeypatch):
 
     assert client.tokens_in == 240
     assert client.tokens_out == 60
+    # Claude Haiku 5.5: $0.10 in / $0.50 out per million tokens.
+    assert client.cost_usd == pytest.approx((240 * 0.10 + 60 * 0.50) / 1_000_000)
+
+
+def test_estimate_claude_cost_uses_long_prompt_rate_and_ignores_unknown_models():
+    from ats.llm import estimate_claude_cost
+
+    # Exactly 100K input tokens still bills at the standard rate.
+    assert estimate_claude_cost("claude-haiku-5-5", 100_000, 1_000_000) == pytest.approx(0.51)
+    # Haiku 5.5 prompts over 100K input tokens bill at $0.50 / $2.50.
+    assert estimate_claude_cost("claude-haiku-5-5", 200_000, 10_000) == (
+        pytest.approx((200_000 * 0.50 + 10_000 * 2.50) / 1_000_000)
+    )
+    assert estimate_claude_cost("claude-opus-5-5", 1_000, 1_000) == pytest.approx(0.024)
+    assert estimate_claude_cost("unpriced-model", 1_000, 1_000) == 0.0
 
 
 async def test_claude_complete_rejects_truncated_response(monkeypatch):
@@ -491,9 +493,7 @@ VALID_REQUIREMENTS = {
 }
 
 
-async def test_clarification_questions_get_stable_sequential_ids(
-    mcp_client, settings
-):
+async def test_clarification_questions_get_stable_sequential_ids(mcp_client, settings):
     response = {
         "questions": [
             {"id": "q-sql", "text": "How many years of SQL?"},
@@ -515,9 +515,7 @@ async def test_clarification_questions_get_stable_sequential_ids(
     assert result.questions[1].about_requirement == "R2"
 
 
-async def test_empty_questions_list_does_not_trigger_clarification(
-    mcp_client, settings
-):
+async def test_empty_questions_list_does_not_trigger_clarification(mcp_client, settings):
     """Regression: {"requirements": [...], "questions": []} used to become a
     ClarificationRequest with zero questions, stranding the run."""
     response = {**VALID_REQUIREMENTS, "questions": []}
@@ -533,9 +531,7 @@ async def test_empty_questions_list_does_not_trigger_clarification(
     assert result.requirements[0].id == "R1"
 
 
-async def test_complete_requirements_do_not_trigger_clarification(
-    mcp_client, settings
-):
+async def test_complete_requirements_do_not_trigger_clarification(mcp_client, settings):
     result = await run_requirements_agent(
         "JOB-001",
         mcp_client,
@@ -546,9 +542,7 @@ async def test_complete_requirements_do_not_trigger_clarification(
     assert isinstance(result, RequirementSet)
 
 
-async def test_recruiter_answers_are_sent_and_requirements_returned(
-    mcp_client, settings
-):
+async def test_recruiter_answers_are_sent_and_requirements_returned(mcp_client, settings):
     llm = FakeLLMClient(json.dumps(VALID_REQUIREMENTS))
 
     result = await run_requirements_agent(
@@ -564,9 +558,7 @@ async def test_recruiter_answers_are_sent_and_requirements_returned(
     assert "do not ask further questions" in llm.last_user_prompt
 
 
-async def test_repeat_clarification_after_answers_is_rejected(
-    mcp_client, settings
-):
+async def test_repeat_clarification_after_answers_is_rejected(mcp_client, settings):
     response = {"questions": [{"id": "Q1", "text": "Asked again?"}]}
 
     with pytest.raises(ValueError, match="clarification again"):
@@ -579,9 +571,7 @@ async def test_repeat_clarification_after_answers_is_rejected(
         )
 
 
-async def test_invalid_clarification_questions_are_rejected(
-    mcp_client, settings
-):
+async def test_invalid_clarification_questions_are_rejected(mcp_client, settings):
     for questions in ("not a list", [{"id": "Q1"}], [{"text": "   "}], ["bare"]):
         with pytest.raises(ValueError):
             await run_requirements_agent(

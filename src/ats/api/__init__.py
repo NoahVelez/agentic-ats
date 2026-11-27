@@ -1,4 +1,3 @@
-
 """FastAPI routes for the Agentic ATS run lifecycle."""
 
 from __future__ import annotations
@@ -46,6 +45,11 @@ def _record_usage(state: RunState, llm_client: Any) -> None:
     if isinstance(tokens_out, int):
         state.usage.tokens_out += tokens_out
 
+    cost_usd = getattr(llm_client, "cost_usd", None)
+
+    if isinstance(cost_usd, int | float):
+        state.usage.cost_usd += float(cost_usd)
+
 
 def create_router(runtime: Runtime, server: Any) -> APIRouter:
     router = APIRouter()
@@ -83,10 +87,7 @@ def create_router(runtime: Runtime, server: Any) -> APIRouter:
         dependencies=[Depends(require_api_key)],
     )
     def list_jobs() -> list[JobSummary]:
-        return [
-            JobSummary(job_id=job.job_id, title=job.title)
-            for job in runtime.jobs.values()
-        ]
+        return [JobSummary(job_id=job.job_id, title=job.title) for job in runtime.jobs.values()]
 
     @router.get(
         "/jobs/{job_id}",
@@ -125,6 +126,12 @@ def create_router(runtime: Runtime, server: Any) -> APIRouter:
 
         llm_client = None
 
+        def advance_stage(stage: Literal["searching", "evaluating"]) -> None:
+            state.status = stage
+            state.stage = stage
+            state.updated_at = datetime.now(UTC)
+            runtime.run_store.save(state)
+
         try:
             llm_client = create_llm_client(runtime.settings)
 
@@ -135,6 +142,7 @@ def create_router(runtime: Runtime, server: Any) -> APIRouter:
                     recruiter_answers=state.recruiter_answers or None,
                     llm_client=llm_client,
                     settings=runtime.settings,
+                    on_stage=advance_stage,
                 )
 
             state.updated_at = datetime.now(UTC)
@@ -156,9 +164,7 @@ def create_router(runtime: Runtime, server: Any) -> APIRouter:
             logging.exception("Screening run %s failed", run_id)
             state.status = "failed"
             state.stage = "failed"
-            state.error = (
-                "Screening run failed. Check the application logs."
-            )
+            state.error = "Screening run failed. Check the application logs."
             state.updated_at = datetime.now(UTC)
 
         _record_usage(state, llm_client)
@@ -256,9 +262,7 @@ def create_router(runtime: Runtime, server: Any) -> APIRouter:
                 detail="Answers cannot be empty.",
             )
 
-        expected_ids = {
-            question.id for question in state.pending_questions
-        }
+        expected_ids = {question.id for question in state.pending_questions}
         submitted_ids = set(answers)
 
         if submitted_ids != expected_ids:
@@ -272,10 +276,7 @@ def create_router(runtime: Runtime, server: Any) -> APIRouter:
             )
 
         state.recruiter_answers.update(
-            {
-                question_id: answer.strip()
-                for question_id, answer in answers.items()
-            }
+            {question_id: answer.strip() for question_id, answer in answers.items()}
         )
 
         state.pending_questions = []

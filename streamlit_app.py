@@ -46,13 +46,9 @@ def api_request(method, endpoint, **kwargs):
         except ValueError:
             body = None
         detail = (
-            body.get("detail", exc.response.text)
-            if isinstance(body, dict)
-            else exc.response.text
+            body.get("detail", exc.response.text) if isinstance(body, dict) else exc.response.text
         )
-        st.error(
-            f"API error ({exc.response.status_code}): {detail}"
-        )
+        st.error(f"API error ({exc.response.status_code}): {detail}")
     except httpx.RequestError as exc:
         st.error(f"Could not connect to the API: {exc}")
 
@@ -62,8 +58,7 @@ def api_request(method, endpoint, **kwargs):
 def show_candidate(candidate):
     """Display one candidate's evaluation."""
     with st.expander(
-        f"#{candidate['rank']} — {candidate['candidate_id']} "
-        f"(Score: {candidate['score']:.2f})"
+        f"#{candidate['rank']} — {candidate['candidate_id']} (Score: {candidate['score']:.2f})"
     ):
         st.write("**Flags**")
 
@@ -80,10 +75,7 @@ def show_candidate(candidate):
         for claim in evaluation.get("claims", []):
             verdict = claim.get("verdict", "unknown")
 
-            st.markdown(
-                f"**{claim.get('requirement_id', 'Requirement')}** "
-                f"— `{verdict}`"
-            )
+            st.markdown(f"**{claim.get('requirement_id', 'Requirement')}** — `{verdict}`")
 
             st.write(claim.get("reasoning", ""))
 
@@ -136,19 +128,14 @@ def show_run(run):
                     label = question["text"]
 
                     if question.get("about_requirement"):
-                        label += (
-                            f"\nRelated requirement: "
-                            f"{question['about_requirement']}"
-                        )
+                        label += f"\nRelated requirement: {question['about_requirement']}"
 
                     answers[question["id"]] = st.text_area(
                         label,
                         key=f"answer_{run['run_id']}_{question['id']}",
                     )
 
-                submitted = st.form_submit_button(
-                    "Submit answers and resume screening"
-                )
+                submitted = st.form_submit_button("Submit answers and resume screening")
 
                 if submitted:
                     if any(not value.strip() for value in answers.values()):
@@ -163,9 +150,7 @@ def show_run(run):
                         if result:
                             # Replace the cached awaiting_clarification run so
                             # the form is not shown again after the rerun.
-                            refreshed = api_request(
-                                "GET", f"/api/runs/{run['run_id']}"
-                            )
+                            refreshed = api_request("GET", f"/api/runs/{run['run_id']}")
                             if refreshed:
                                 st.session_state["current_run"] = refreshed
                             else:
@@ -179,9 +164,7 @@ def show_run(run):
         "evaluating",
         "verifying",
     }:
-        st.info(
-            "Screening is in progress. Select Refresh to check the latest status."
-        )
+        st.info("Screening is in progress. Select Refresh to check the latest status.")
 
     elif status in {"awaiting_review", "completed"}:
         st.success("Screening results are available.")
@@ -211,9 +194,7 @@ health = api_request("GET", "/api/health")
 
 if health:
     st.sidebar.success("Backend connected")
-    st.sidebar.write(
-        f"Vector store loaded: {health.get('vector_store_loaded')}"
-    )
+    st.sidebar.write(f"Vector store loaded: {health.get('vector_store_loaded')}")
 else:
     st.sidebar.error("Backend unavailable")
 
@@ -231,10 +212,7 @@ if not jobs:
     st.info("No jobs are currently available.")
     st.stop()
 
-job_options = {
-    f"{job['title']} ({job['job_id']})": job["job_id"]
-    for job in jobs
-}
+job_options = {f"{job['title']} ({job['job_id']})": job["job_id"] for job in jobs}
 
 selected_job_label = st.selectbox(
     "Select a job",
@@ -264,6 +242,8 @@ if st.button(
 
     if result:
         st.session_state["active_run_id"] = result["run_id"]
+        # Safe to set here: the Run ID widget has not been drawn yet this run.
+        st.session_state["run_id_input"] = result["run_id"]
         st.success(f"Screening started: {result['run_id']}")
         st.rerun()
 
@@ -271,9 +251,17 @@ st.divider()
 
 st.header("Screening run")
 
+# A keyed widget keeps what the recruiter types. Passing value= from
+# session state instead would recreate the widget whenever the active run
+# changed and silently discard the newly typed run ID.
+st.session_state.setdefault(
+    "run_id_input",
+    st.session_state.get("active_run_id", ""),
+)
+
 run_id = st.text_input(
     "Run ID",
-    value=st.session_state.get("active_run_id", ""),
+    key="run_id_input",
     placeholder="Enter a screening run ID",
 )
 

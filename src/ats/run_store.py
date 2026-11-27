@@ -1,8 +1,8 @@
-
 """File-based persistence for screening runs."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from ats.models import RunState
@@ -43,9 +43,7 @@ class FileRunStore(RunStore):
         if not path.is_file():
             raise FileNotFoundError(f"Run not found: {run_id}")
 
-        return RunState.model_validate_json(
-            path.read_text(encoding="utf-8")
-        )
+        return RunState.model_validate_json(path.read_text(encoding="utf-8"))
 
     def save(self, state: RunState) -> None:
         folder = self._run_folder(state.run_id)
@@ -56,7 +54,11 @@ class FileRunStore(RunStore):
 
     @staticmethod
     def _write_state(path: Path, state: RunState) -> None:
-        path.write_text(
+        # Write then rename so a concurrent reader (the API polled by the
+        # dashboard) never sees a half-written state.json.
+        temp_path = path.with_suffix(".json.tmp")
+        temp_path.write_text(
             state.model_dump_json(indent=2),
             encoding="utf-8",
         )
+        os.replace(temp_path, path)

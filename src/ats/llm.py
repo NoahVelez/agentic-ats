@@ -1,4 +1,3 @@
-
 """Shared asynchronous LLM client for all ATS agents."""
 
 from __future__ import annotations
@@ -68,11 +67,40 @@ class OpenAICompatibleClient:
         return response.choices[0].message.content or ""
 
 
+# USD per million tokens: (input, output), Anthropic first-party rates.
+# Claude Haiku 5.5 bills prompts over 100K input tokens at a higher rate.
+CLAUDE_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
+    "claude-haiku-5-5": (0.10, 0.50),
+    "claude-sonnet-5-5": (2.00, 10.00),
+    "claude-opus-5-5": (4.00, 20.00),
+}
+CLAUDE_LONG_PROMPT_PRICES_PER_MTOK: dict[str, tuple[int, float, float]] = {
+    "claude-haiku-5-5": (100_000, 0.50, 2.50),
+}
+
+
+def estimate_claude_cost(model: str, tokens_in: int, tokens_out: int) -> float:
+    """Return the USD cost of one Claude request, or 0.0 for unpriced models."""
+    prices = CLAUDE_PRICES_PER_MTOK.get(model)
+
+    if prices is None:
+        return 0.0
+
+    input_price, output_price = prices
+    long_prompt = CLAUDE_LONG_PROMPT_PRICES_PER_MTOK.get(model)
+
+    if long_prompt is not None and tokens_in > long_prompt[0]:
+        _, input_price, output_price = long_prompt
+
+    return (tokens_in * input_price + tokens_out * output_price) / 1_000_000
+
+
 class AnthropicClient:
     """Async client for Anthropic Claude models.
 
-    Token usage is accumulated across calls in ``tokens_in`` / ``tokens_out``
-    so a screening run can report what it consumed.
+    Token usage is accumulated across calls in ``tokens_in`` / ``tokens_out``,
+    with the estimated price in ``cost_usd``, so a screening run can report
+    what it consumed.
     """
 
     # Current Claude models think adaptively by default and thinking tokens
@@ -84,6 +112,7 @@ class AnthropicClient:
         self.client = AsyncAnthropic(api_key=api_key)
         self.tokens_in = 0
         self.tokens_out = 0
+        self.cost_usd = 0.0
 
     async def complete(self, system: str, user: str) -> str:
         response = await self.client.messages.create(
@@ -95,20 +124,19 @@ class AnthropicClient:
 
         usage = getattr(response, "usage", None)
         if usage is not None:
-            self.tokens_in += usage.input_tokens or 0
-            self.tokens_out += usage.output_tokens or 0
+            call_in = usage.input_tokens or 0
+            call_out = usage.output_tokens or 0
+            self.tokens_in += call_in
+            self.tokens_out += call_out
+            self.cost_usd += estimate_claude_cost(self.model, call_in, call_out)
 
         if response.stop_reason == "max_tokens":
-            raise ValueError(
-                f"Claude response was truncated at max_tokens={self.MAX_TOKENS}."
-            )
+            raise ValueError(f"Claude response was truncated at max_tokens={self.MAX_TOKENS}.")
 
         if response.stop_reason == "refusal":
             raise ValueError("Claude declined to answer this request.")
 
-        return "\n".join(
-            block.text for block in response.content if block.type == "text"
-        )
+        return "\n".join(block.text for block in response.content if block.type == "text")
 
 
 def create_llm_client(settings: Settings | None = None) -> LLMClient:
@@ -150,6 +178,5 @@ def create_llm_client(settings: Settings | None = None) -> LLMClient:
         )
 
     raise ValueError(
-        f"Unsupported LLM provider: {provider}. "
-        "Supported providers: claude, groq, openai."
+        f"Unsupported LLM provider: {provider}. Supported providers: claude, groq, openai."
     )

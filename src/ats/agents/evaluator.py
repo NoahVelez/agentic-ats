@@ -1,4 +1,3 @@
-
 """Evaluator Agent: evaluates one candidate against job requirements."""
 
 from __future__ import annotations
@@ -17,14 +16,10 @@ from ats.models import CandidateEvaluation, Chunk, RequirementSet
 
 def load_system_prompt() -> str:
     """Load the Evaluator Agent system prompt."""
-    prompt_path = (
-        Path(__file__).parent / "prompts" / "evaluator_system.md"
-    )
+    prompt_path = Path(__file__).parent / "prompts" / "evaluator_system.md"
 
     if not prompt_path.exists():
-        raise FileNotFoundError(
-            f"Evaluator system prompt not found: {prompt_path}"
-        )
+        raise FileNotFoundError(f"Evaluator system prompt not found: {prompt_path}")
 
     return prompt_path.read_text(encoding="utf-8")
 
@@ -51,14 +46,10 @@ def parse_model_response(response: str) -> dict[str, Any]:
         try:
             parsed = json.loads(extract_json_text(response))
         except json.JSONDecodeError:
-            raise ValueError(
-                f"Evaluator returned invalid JSON: {exc}"
-            ) from exc
+            raise ValueError(f"Evaluator returned invalid JSON: {exc}") from exc
 
     if not isinstance(parsed, dict):
-        raise ValueError(
-            "Evaluator response must be a JSON object."
-        )
+        raise ValueError("Evaluator response must be a JSON object.")
 
     return parsed
 
@@ -66,9 +57,7 @@ def parse_model_response(response: str) -> dict[str, Any]:
 def _extract_result(tool_result: Any) -> Any:
     """Extract data from a FastMCP tool result."""
     if getattr(tool_result, "is_error", False):
-        raise RuntimeError(
-            "An MCP candidate retrieval tool returned an error."
-        )
+        raise RuntimeError("An MCP candidate retrieval tool returned an error.")
 
     data = getattr(tool_result, "data", None)
 
@@ -80,17 +69,13 @@ def _extract_result(tool_result: Any) -> Any:
     if isinstance(structured, dict):
         return structured.get("result", structured)
 
-    raise RuntimeError(
-        "The MCP tool returned no usable data."
-    )
+    raise RuntimeError("The MCP tool returned no usable data.")
 
 
 def _parse_chunks(raw_chunks: Any) -> list[dict[str, Any]]:
     """Validate and normalize candidate resume chunks."""
     if not isinstance(raw_chunks, list):
-        raise ValueError(
-            "Candidate retrieval did not return a list of chunks."
-        )
+        raise ValueError("Candidate retrieval did not return a list of chunks.")
 
     chunks = []
 
@@ -101,9 +86,7 @@ def _parse_chunks(raw_chunks: Any) -> list[dict[str, Any]]:
         try:
             validated = Chunk.model_validate(chunk, from_attributes=True)
         except ValidationError as exc:
-            raise ValueError(
-                "Invalid candidate chunk returned by MCP."
-            ) from exc
+            raise ValueError("Invalid candidate chunk returned by MCP.") from exc
 
         chunks.append(validated.model_dump(mode="json"))
 
@@ -116,9 +99,7 @@ def _build_user_prompt(
     chunks: list[dict[str, Any]],
 ) -> str:
     """Build the evaluation prompt using retrieved resume evidence."""
-    requirements_data = [
-        item.model_dump() for item in requirements.requirements
-    ]
+    requirements_data = [item.model_dump() for item in requirements.requirements]
 
     return f"""
 Evaluate this candidate against the job requirements.
@@ -182,9 +163,7 @@ async def run_evaluator_agent(
         raise ValueError("candidate_id cannot be empty.")
 
     if not requirements.requirements:
-        raise ValueError(
-            "No requirements were provided for evaluation."
-        )
+        raise ValueError("No requirements were provided for evaluation.")
 
     # Retrieve all candidate resume chunks through MCP.
     result = await mcp_client.call_tool(
@@ -195,14 +174,10 @@ async def run_evaluator_agent(
     chunks = _parse_chunks(_extract_result(result))
 
     if not chunks:
-        raise ValueError(
-            f"No resume chunks found for candidate {candidate_id}."
-        )
+        raise ValueError(f"No resume chunks found for candidate {candidate_id}.")
 
     # Search for additional relevant evidence for each requirement.
-    existing_ids = {
-        chunk.get("chunk_id") for chunk in chunks
-    }
+    existing_ids = {chunk.get("chunk_id") for chunk in chunks}
 
     for requirement in requirements.requirements:
         search_result = await mcp_client.call_tool(
@@ -214,9 +189,7 @@ async def run_evaluator_agent(
             },
         )
 
-        additional_chunks = _parse_chunks(
-            _extract_result(search_result)
-        )
+        additional_chunks = _parse_chunks(_extract_result(search_result))
 
         for chunk in additional_chunks:
             chunk_id = chunk.get("chunk_id")
@@ -242,49 +215,29 @@ async def run_evaluator_agent(
     parsed = parse_model_response(response)
 
     if parsed.get("candidate_id") != candidate_id:
-        raise ValueError(
-            "Evaluator returned a different candidate_id."
-        )
+        raise ValueError("Evaluator returned a different candidate_id.")
 
     try:
         evaluation = CandidateEvaluation.model_validate(parsed)
     except ValidationError as exc:
-        raise ValueError(
-            f"Invalid Evaluator output: {exc}"
-        ) from exc
+        raise ValueError(f"Invalid Evaluator output: {exc}") from exc
 
     # Every requirement must have exactly one claim.
-    expected_ids = {
-        requirement.id for requirement in requirements.requirements
-    }
+    expected_ids = {requirement.id for requirement in requirements.requirements}
 
-    actual_ids = [
-        claim.requirement_id for claim in evaluation.claims
-    ]
+    actual_ids = [claim.requirement_id for claim in evaluation.claims]
 
-    if (
-        set(actual_ids) != expected_ids
-        or len(actual_ids) != len(expected_ids)
-    ):
-        raise ValueError(
-            "Evaluator must return exactly one claim "
-            "for every requirement."
-        )
+    if set(actual_ids) != expected_ids or len(actual_ids) != len(expected_ids):
+        raise ValueError("Evaluator must return exactly one claim for every requirement.")
 
     # Evidence is mandatory for met and partial verdicts.
     for claim in evaluation.claims:
         if claim.verdict in ("met", "partial"):
             if not claim.quote or not claim.chunk_id:
-                raise ValueError(
-                    f"Claim {claim.requirement_id} needs "
-                    "a quote and chunk_id."
-                )
+                raise ValueError(f"Claim {claim.requirement_id} needs a quote and chunk_id.")
 
         if claim.verdict == "missing":
             if claim.quote is not None or claim.chunk_id is not None:
-                raise ValueError(
-                    f"Missing claim {claim.requirement_id} "
-                    "must not contain evidence."
-                )
+                raise ValueError(f"Missing claim {claim.requirement_id} must not contain evidence.")
 
     return evaluation

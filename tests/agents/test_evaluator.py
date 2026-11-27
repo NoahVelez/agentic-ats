@@ -1,4 +1,3 @@
-
 import json
 from types import SimpleNamespace
 
@@ -116,9 +115,7 @@ def valid_evaluation():
 
 
 def test_parse_model_response_valid_json():
-    result = parse_model_response(
-        '{"candidate_id": "candidate_001", "claims": []}'
-    )
+    result = parse_model_response('{"candidate_id": "candidate_001", "claims": []}')
     assert result["candidate_id"] == "candidate_001"
 
 
@@ -253,8 +250,7 @@ async def test_evaluator_rejects_malformed_chunk(requirements):
 
 def test_parse_model_response_accepts_prose_around_json():
     response = (
-        "Evaluation complete.\n```json\n"
-        '{"candidate_id": "candidate_001", "claims": []}\n```\nDone.'
+        'Evaluation complete.\n```json\n{"candidate_id": "candidate_001", "claims": []}\n```\nDone.'
     )
 
     assert parse_model_response(response)["candidate_id"] == "candidate_001"

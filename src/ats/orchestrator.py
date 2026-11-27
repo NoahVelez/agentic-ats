@@ -1,12 +1,12 @@
-
 """Plain-Python orchestration for the Agentic ATS workflow."""
 
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastmcp import Client
 
@@ -24,6 +24,9 @@ from ats.models import (
     TraceEvent,
 )
 from ats.tracing import append_event
+
+StageCallback = Callable[[Literal["searching", "evaluating"]], None]
+"""Called with the next stage name ("searching", "evaluating") as a run advances."""
 
 
 def _extract_mcp_result(result: Any) -> Any:
@@ -89,10 +92,7 @@ def score_candidate(
     Met = 1.0, partial = 0.5, missing = 0.
     Unverified claims do not contribute to the score.
     """
-    requirement_by_id = {
-        requirement.id: requirement
-        for requirement in requirements.requirements
-    }
+    requirement_by_id = {requirement.id: requirement for requirement in requirements.requirements}
 
     score = 0.0
     flags: list[str] = []
@@ -112,13 +112,12 @@ def score_candidate(
         elif claim.verdict == "partial":
             score += requirement.weight * 0.5
 
-        if (
-            requirement.kind == "must"
-            and claim.verdict == "missing"
-        ):
+        if requirement.kind == "must" and claim.verdict == "missing":
             flags.append("missing_must_have")
 
     return score, sorted(set(flags))
+
+
 async def evaluate_candidates(
     requirements: RequirementSet,
     candidate_pool: CandidatePool,
@@ -144,6 +143,8 @@ async def evaluate_candidates(
     return await asyncio.gather(
         *(evaluate_one(candidate_id) for candidate_id in candidate_pool.candidate_ids)
     )
+
+
 def rank_candidates(
     requirements: RequirementSet,
     evaluations: list[CandidateEvaluation],
@@ -154,12 +155,14 @@ def rank_candidates(
     for evaluation in evaluations:
         score, flags = score_candidate(requirements, evaluation)
 
-        ranked.append({
-            "candidate_id": evaluation.candidate_id,
-            "score": score,
-            "flags": flags,
-            "evaluation": evaluation,
-        })
+        ranked.append(
+            {
+                "candidate_id": evaluation.candidate_id,
+                "score": score,
+                "flags": flags,
+                "evaluation": evaluation,
+            }
+        )
 
     ranked.sort(
         key=lambda candidate: (
@@ -180,6 +183,7 @@ def rank_candidates(
         for index, candidate in enumerate(ranked, start=1)
     ]
 
+
 async def prepare_screening(
     job_id: str,
     mcp_client: Client,
@@ -187,6 +191,7 @@ async def prepare_screening(
     recruiter_answers: dict[str, Any] | None = None,
     llm_client: LLMClient | None = None,
     settings: Settings | None = None,
+    on_stage: StageCallback | None = None,
 ) -> ClarificationRequest | tuple[RequirementSet, CandidatePool]:
     """Run requirements analysis, pause for clarification, then search resumes."""
     settings = settings or get_settings()
@@ -202,6 +207,9 @@ async def prepare_screening(
     if isinstance(requirements_result, ClarificationRequest):
         return requirements_result
 
+    if on_stage is not None:
+        on_stage("searching")
+
     candidate_pool = await run_search_agent(
         requirements_result,
         mcp_client,
@@ -209,6 +217,8 @@ async def prepare_screening(
     )
 
     return requirements_result, candidate_pool
+
+
 async def run_screening_pipeline(
     job_id: str,
     mcp_client: Client,
@@ -216,6 +226,7 @@ async def run_screening_pipeline(
     recruiter_answers: dict[str, Any] | None = None,
     llm_client: LLMClient | None = None,
     settings: Settings | None = None,
+    on_stage: StageCallback | None = None,
 ) -> (
     ClarificationRequest
     | tuple[
@@ -235,12 +246,16 @@ async def run_screening_pipeline(
         recruiter_answers=recruiter_answers,
         llm_client=llm_client,
         settings=settings,
+        on_stage=on_stage,
     )
 
     if isinstance(screening, ClarificationRequest):
         return screening
 
     requirements, candidate_pool = screening
+
+    if on_stage is not None:
+        on_stage("evaluating")
 
     evaluations = await evaluate_candidates(
         requirements,

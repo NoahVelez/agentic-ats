@@ -1,4 +1,3 @@
-
 """Requirements Agent.
 
 Retrieves a job description through MCP, then uses the shared LLM
@@ -23,17 +22,13 @@ from ats.models import (
     RequirementSet,
 )
 
-PROMPT_PATH = (
-    Path(__file__).parent / "prompts" / "requirements_system.md"
-)
+PROMPT_PATH = Path(__file__).parent / "prompts" / "requirements_system.md"
 
 
 def load_system_prompt() -> str:
     """Load the Requirements Agent system prompt."""
     if not PROMPT_PATH.exists():
-        raise FileNotFoundError(
-            f"Requirements system prompt not found: {PROMPT_PATH}"
-        )
+        raise FileNotFoundError(f"Requirements system prompt not found: {PROMPT_PATH}")
 
     return PROMPT_PATH.read_text(encoding="utf-8")
 
@@ -60,14 +55,10 @@ def parse_model_response(response: str) -> dict[str, Any]:
         try:
             parsed = json.loads(extract_json_text(response))
         except json.JSONDecodeError:
-            raise ValueError(
-                f"Requirements Agent returned invalid JSON: {exc}"
-            ) from exc
+            raise ValueError(f"Requirements Agent returned invalid JSON: {exc}") from exc
 
     if not isinstance(parsed, dict):
-        raise ValueError(
-            "Requirements Agent response must be a JSON object."
-        )
+        raise ValueError("Requirements Agent response must be a JSON object.")
 
     return parsed
 
@@ -136,9 +127,7 @@ Maximum clarification questions: {max_questions}
 def _get_job_from_mcp_result(result: Any) -> JobDescription:
     """Validate the job returned by the MCP get_job tool."""
     if getattr(result, "is_error", False):
-        raise ValueError(
-            "The MCP get_job tool returned an error."
-        )
+        raise ValueError("The MCP get_job tool returned an error.")
 
     data = getattr(result, "data", None)
 
@@ -152,9 +141,7 @@ def _get_job_from_mcp_result(result: Any) -> JobDescription:
             data = structured.get("result", structured)
 
     if data is None:
-        raise ValueError(
-            "The MCP get_job tool returned no job data."
-        )
+        raise ValueError("The MCP get_job tool returned no job data.")
 
     # FastMCP can return a Pydantic model in result.data.
     # Convert wrapped model objects into plain data before validation.
@@ -168,9 +155,7 @@ def _get_job_from_mcp_result(result: Any) -> JobDescription:
     try:
         return JobDescription.model_validate(data, from_attributes=True)
     except ValidationError as exc:
-        raise ValueError(
-            "The MCP get_job tool returned invalid job data."
-        ) from exc
+        raise ValueError("The MCP get_job tool returned invalid job data.") from exc
 
 
 def _build_clarification_request(
@@ -192,13 +177,9 @@ def _build_clarification_request(
             raise ValueError("Each clarification question must be an object.")
 
         try:
-            question = Question.model_validate(
-                {**question_data, "id": f"Q{index}"}
-            )
+            question = Question.model_validate({**question_data, "id": f"Q{index}"})
         except ValidationError as exc:
-            raise ValueError(
-                f"Invalid clarification question: {exc}"
-            ) from exc
+            raise ValueError(f"Invalid clarification question: {exc}") from exc
 
         if not question.text.strip():
             raise ValueError("Clarification questions cannot be empty.")
@@ -260,9 +241,7 @@ async def run_requirements_agent(
     questions_data = parsed.get("questions")
 
     if questions_data is not None and not isinstance(questions_data, list):
-        raise ValueError(
-            "Clarification questions must be provided as a list."
-        )
+        raise ValueError("Clarification questions must be provided as a list.")
 
     # An empty list (e.g. {"requirements": [...], "questions": []}) is not a
     # clarification request; it would leave the run waiting on nothing.
@@ -285,9 +264,7 @@ async def run_requirements_agent(
     try:
         requirement_set = RequirementSet.model_validate(parsed)
     except ValidationError as exc:
-        raise ValueError(
-            f"Invalid Requirements Agent output: {exc}"
-        ) from exc
+        raise ValueError(f"Invalid Requirements Agent output: {exc}") from exc
 
     for index, requirement in enumerate(
         requirement_set.requirements,

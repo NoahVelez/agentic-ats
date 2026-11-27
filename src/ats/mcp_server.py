@@ -1,4 +1,3 @@
-
 """FastMCP server ``agentic-ats``: the only data access path for agents (SPEC §5).
 
 Guarantees enforced here rather than left to each tool (SPEC §5.3):

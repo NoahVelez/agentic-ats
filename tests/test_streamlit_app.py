@@ -193,3 +193,20 @@ def test_clarification_answers_are_submitted_and_form_clears(backend):
     # The refreshed (queued) run replaces the stale clarification form.
     assert len(app.text_area) == 0
     assert {m.label: m.value for m in app.metric}["Status"] == "queued"
+
+
+def test_typed_run_id_is_kept_after_a_run_was_loaded(backend):
+    """Regression: the Run ID box was rebuilt whenever the loaded run changed,
+    so the next ID a recruiter typed was discarded and the old one came back."""
+    app = AppTest.from_file(APP_PATH, default_timeout=30).run()
+    app.text_input[0].set_value(RUN_ID).run()
+    button(app, "Refresh run status").click().run()
+    assert app.metric
+
+    app.text_input[0].set_value("run_unknown").run()
+    assert app.text_input[0].value == "run_unknown"
+
+    button(app, "Refresh run status").click().run()
+    assert not app.exception
+    assert app.text_input[0].value == "run_unknown"
+    assert any("Run not found" in error.value for error in app.error)

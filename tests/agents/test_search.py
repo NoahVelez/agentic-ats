@@ -1,4 +1,3 @@
-
 """Tests for the adaptive MCP Search Agent."""
 
 from types import SimpleNamespace
